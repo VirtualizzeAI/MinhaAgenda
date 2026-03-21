@@ -20,12 +20,8 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { CalendarPlus, Search, UserPlus, Users } from 'lucide-react';
-import { clients } from '@/mocks/clients';
-import { professionals } from '@/mocks/agenda';
-import { Appointment, Client, ClientTag } from '@/services/api/contracts';
-
-const APPOINTMENTS_STORAGE_KEY = 'minha-agenda:appointments';
-const CLIENTS_STORAGE_KEY = 'minha-agenda:clients';
+import { AppointmentStatus, Client, ClientTag, Professional } from '@/services/api/contracts';
+import { useApi } from '@/lib/use-api';
 
 interface NewAppointmentForm {
   date: string;
@@ -35,7 +31,7 @@ interface NewAppointmentForm {
   serviceName: string;
   room: string;
   professionalId: string;
-  status: Appointment['status'];
+  status: AppointmentStatus;
   notes: string;
 }
 
@@ -109,24 +105,9 @@ const initialForm: NewClientForm = {
 };
 
 export function ClientsPage() {
-  const [clientRecords, setClientRecords] = useState<Client[]>(() => {
-    if (typeof window === 'undefined') {
-      return clients;
-    }
-
-    const raw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
-
-    if (!raw) {
-      return clients;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Client[];
-      return Array.isArray(parsed) ? parsed : clients;
-    } catch {
-      return clients;
-    }
-  });
+  const api = useApi();
+  const [clientRecords, setClientRecords] = useState<Client[]>([]);
+  const [professionalRecords, setProfessionalRecords] = useState<Professional[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -139,8 +120,10 @@ export function ClientsPage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clientRecords));
-  }, [clientRecords]);
+    if (!api) return;
+    api.clients.list().then(setClientRecords).catch(console.error);
+    api.professionals.list().then(setProfessionalRecords).catch(console.error);
+  }, [api]);
 
   const filteredClients = useMemo(() => {
     const normalizedText = normalizeText(query);
@@ -184,14 +167,14 @@ export function ClientsPage() {
       clientName: client.name,
       serviceName: '',
       room: '',
-      professionalId: professionals[0]?.id ?? '',
+      professionalId: professionalRecords[0]?.id ?? '',
       status: 'confirmed',
       notes: '',
     });
     openScheduleModal();
   };
 
-  const handleCreateAppointment = () => {
+  const handleCreateAppointment = async () => {
     if (!scheduleForm) return;
 
     const serviceName = scheduleForm.serviceName.trim();
@@ -210,31 +193,28 @@ export function ClientsPage() {
       return;
     }
 
-    const newAppointment: Appointment = {
-      id: `a${Date.now()}`,
-      professionalId: scheduleForm.professionalId,
-      clientName: scheduleForm.clientName,
-      serviceName,
-      room,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      status: scheduleForm.status,
-      notes: scheduleForm.notes.trim() || undefined,
-    };
-
-    const existing: Appointment[] = JSON.parse(
-      window.localStorage.getItem(APPOINTMENTS_STORAGE_KEY) ?? '[]',
-    );
-    window.localStorage.setItem(
-      APPOINTMENTS_STORAGE_KEY,
-      JSON.stringify([newAppointment, ...existing]),
-    );
+    if (!api) return;
+    try {
+      await api.appointments.create({
+        professionalId: scheduleForm.professionalId,
+        clientName: scheduleForm.clientName,
+        serviceName,
+        room,
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        status: scheduleForm.status,
+        notes: scheduleForm.notes.trim() || undefined,
+      });
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : 'Erro ao criar agendamento.');
+      return;
+    }
 
     setScheduleError(null);
     closeScheduleModal();
   };
 
-  const handleCreateClient = () => {
+  const handleCreateClient = async () => {
     const name = form.name.trim();
     const cpfDigits = normalizeCpf(form.cpf);
     const phoneDigits = form.phone.replace(/\D/g, '');
@@ -260,19 +240,22 @@ export function ClientsPage() {
       return;
     }
 
-    const newClient: Client = {
-      id: `c${Date.now()}`,
-      name,
-      cpf: formatCpf(cpfDigits),
-      phone: formatPhone(form.phone),
-      email,
-      tags: ['new'],
-      lastVisit: dayjs().toISOString(),
-      birthDate: form.birthDate || undefined,
-      notes: form.notes.trim() || undefined,
-    };
-
-    setClientRecords((current) => [newClient, ...current]);
+    if (!api) return;
+    try {
+      const created = await api.clients.create({
+        name,
+        cpf: formatCpf(cpfDigits),
+        phone: formatPhone(form.phone),
+        email,
+        tags: ['new'],
+        birthDate: form.birthDate || undefined,
+        notes: form.notes.trim() || undefined,
+      });
+      setClientRecords((current) => [created, ...current]);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao cadastrar cliente.');
+      return;
+    }
     setForm(initialForm);
     setFormError(null);
     closeCreateModal();
@@ -638,7 +621,7 @@ export function ClientsPage() {
                 value={scheduleForm.date}
               />
               <Select
-                data={professionals.map((professional) => ({
+                data={professionalRecords.map((professional) => ({
                   value: professional.id,
                   label: professional.name,
                 }))}
@@ -698,7 +681,7 @@ export function ClientsPage() {
                 onChange={(value) => {
                   if (!value) return;
                   setScheduleForm((current) =>
-                    current ? { ...current, status: value as Appointment['status'] } : current,
+                    current ? { ...current, status: value as AppointmentStatus } : current,
                   );
                 }}
                 radius="xl"

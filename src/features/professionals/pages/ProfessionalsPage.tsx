@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Avatar,
   Badge,
@@ -17,11 +17,8 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Plus, Search } from 'lucide-react';
-import { professionals } from '@/mocks/agenda';
 import { Professional } from '@/services/api/contracts';
-
-const PROFESSIONALS_STORAGE_KEY = 'minha-agenda:professionals';
-const SPECIALTIES_STORAGE_KEY = 'minha-agenda:professional-specialties';
+import { useApi } from '@/lib/use-api';
 
 type ProfessionalFilter = 'all' | 'active' | 'inactive';
 
@@ -41,21 +38,10 @@ const initialForm: NewProfessionalForm = {
   active: true,
 };
 
-const defaultSpecialties = Array.from(
-  new Set(professionals.map((professional) => professional.specialty).filter(Boolean)),
-);
+const defaultSpecialties: string[] = [];
 
 function normalizeSpecialty(value: string) {
   return value.trim().toLowerCase();
-}
-
-function getShortName(name: string) {
-  return name
-    .trim()
-    .split(' ')
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
 }
 
 function formatPhone(value: string) {
@@ -69,23 +55,8 @@ function formatPhone(value: string) {
 }
 
 export function ProfessionalsPage() {
-  const [records, setRecords] = useState<Professional[]>(() => {
-    if (typeof window === 'undefined') {
-      return professionals;
-    }
-
-    const raw = window.localStorage.getItem(PROFESSIONALS_STORAGE_KEY);
-    if (!raw) {
-      return professionals;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Professional[];
-      return Array.isArray(parsed) ? parsed : professionals;
-    } catch {
-      return professionals;
-    }
-  });
+  const api = useApi();
+  const [records, setRecords] = useState<Professional[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ProfessionalFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
@@ -93,35 +64,21 @@ export function ProfessionalsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
   const [newSpecialty, setNewSpecialty] = useState('');
-  const [specialties, setSpecialties] = useState<string[]>(() => {
-    if (typeof window === 'undefined') {
-      return defaultSpecialties;
-    }
-
-    const raw = window.localStorage.getItem(SPECIALTIES_STORAGE_KEY);
-    if (!raw) {
-      return defaultSpecialties;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as string[];
-      if (!Array.isArray(parsed)) {
-        return defaultSpecialties;
-      }
-
-      return parsed.filter((value) => value.trim().length > 0);
-    } catch {
-      return defaultSpecialties;
-    }
-  });
+  const [specialties, setSpecialties] = useState<string[]>(defaultSpecialties);
 
   useEffect(() => {
-    window.localStorage.setItem(PROFESSIONALS_STORAGE_KEY, JSON.stringify(records));
+    if (!api) return;
+    api.professionals.list().then(setRecords).catch(console.error);
+  }, [api]);
+
+  useEffect(() => {
+    if (records.length === 0) return;
+    setSpecialties((current) => {
+      const fromRecords = records.map((item) => item.specialty).filter((value) => value.trim().length > 0);
+      const merged = [...current, ...fromRecords];
+      return Array.from(new Set(merged.map((value) => value.trim()))).sort((a, b) => a.localeCompare(b));
+    });
   }, [records]);
-
-  useEffect(() => {
-    window.localStorage.setItem(SPECIALTIES_STORAGE_KEY, JSON.stringify(specialties));
-  }, [specialties]);
 
   const filteredProfessionals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -173,7 +130,7 @@ export function ProfessionalsPage() {
     setNewSpecialty('');
   };
 
-  const handleSaveProfessional = () => {
+  const handleSaveProfessional = useCallback(async () => {
     const name = form.name.trim();
     const specialty = form.specialty.trim();
     const phoneDigits = form.phone.replace(/\D/g, '');
@@ -195,34 +152,33 @@ export function ProfessionalsPage() {
 
     registerSpecialty(specialty);
 
-    if (editingProfessionalId) {
-      setRecords((current) =>
-        current.map((professional) =>
-          professional.id === editingProfessionalId
-            ? {
-              ...professional,
-              name,
-              specialty,
-              shortName: getShortName(name),
-              phone: formatPhone(form.phone),
-              commissionRate: form.commissionRate,
-              active: form.active,
-            }
-            : professional,
-        ),
-      );
-    } else {
-      const newProfessional: Professional = {
-        id: `p${Date.now()}`,
-        name,
-        specialty,
-        shortName: getShortName(name),
-        phone: formatPhone(form.phone),
-        commissionRate: form.commissionRate,
-        active: form.active,
-      };
+    if (!api) return;
 
-      setRecords((current) => [newProfessional, ...current]);
+    try {
+      if (editingProfessionalId) {
+        const updated = await api.professionals.update(editingProfessionalId, {
+          name,
+          specialty,
+          phone: formatPhone(form.phone),
+          commissionRate: form.commissionRate,
+          active: form.active,
+        });
+        setRecords((current) =>
+          current.map((p) => (p.id === editingProfessionalId ? updated : p)),
+        );
+      } else {
+        const created = await api.professionals.create({
+          name,
+          specialty,
+          phone: formatPhone(form.phone),
+          commissionRate: form.commissionRate,
+          active: form.active,
+        });
+        setRecords((current) => [created, ...current]);
+      }
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao salvar profissional.');
+      return;
     }
 
     setEditingProfessionalId(null);
@@ -230,7 +186,7 @@ export function ProfessionalsPage() {
     setForm(initialForm);
     setFormError(null);
     close();
-  };
+  }, [api, editingProfessionalId, form, registerSpecialty]);
 
   const handleEditProfessional = (professional: Professional) => {
     setEditingProfessionalId(professional.id);
@@ -246,15 +202,12 @@ export function ProfessionalsPage() {
     open();
   };
 
-  const toggleProfessionalStatus = (professionalId: string) => {
-    setRecords((current) =>
-      current.map((professional) =>
-        professional.id === professionalId
-          ? { ...professional, active: !(professional.active ?? true) }
-          : professional,
-      ),
-    );
-  };
+  const toggleProfessionalStatus = useCallback(async (professionalId: string) => {
+    const target = records.find((p) => p.id === professionalId);
+    if (!target || !api) return;
+    const updated = await api.professionals.update(professionalId, { active: !(target.active ?? true) });
+    setRecords((current) => current.map((p) => (p.id === professionalId ? updated : p)));
+  }, [api, records]);
 
   return (
     <Stack gap="lg">

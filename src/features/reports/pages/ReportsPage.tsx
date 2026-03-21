@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   Badge,
@@ -11,12 +11,8 @@ import {
   Title,
 } from '@mantine/core';
 import { Sparkles } from 'lucide-react';
-import { appointments, professionals } from '@/mocks/agenda';
-import { billingCharges } from '@/mocks/billing';
-import { clients } from '@/mocks/clients';
-import { orders } from '@/mocks/orders';
-import { services } from '@/mocks/services';
-import { Appointment, BillingCharge, Order, Professional, Service } from '@/services/api/contracts';
+import { Appointment, BillingCharge, Client, Order, Professional, Service } from '@/services/api/contracts';
+import { useApi } from '@/lib/use-api';
 
 type ReportPeriod = '7' | '30' | '90';
 
@@ -26,24 +22,6 @@ const periodOptions: Record<ReportPeriod, string> = {
   '90': '90 dias',
 };
 
-function loadRecords<T>(storageKey: string, fallback: T[]): T[] {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-
-  const raw = window.localStorage.getItem(storageKey);
-  if (!raw) {
-    return fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as T[];
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function toTopList(counter: Map<string, number>, limit = 4) {
   return [...counter.entries()]
     .sort((left, right) => right[1] - left[1])
@@ -51,13 +29,24 @@ function toTopList(counter: Map<string, number>, limit = 4) {
 }
 
 export function ReportsPage() {
+  const api = useApi();
   const [period, setPeriod] = useState<ReportPeriod>('30');
+  const [appointmentRecords, setAppointmentRecords] = useState<Appointment[]>([]);
+  const [orderRecords, setOrderRecords] = useState<Order[]>([]);
+  const [billingRecords, setBillingRecords] = useState<BillingCharge[]>([]);
+  const [professionalRecords, setProfessionalRecords] = useState<Professional[]>([]);
+  const [serviceRecords, setServiceRecords] = useState<Service[]>([]);
+  const [clientRecords, setClientRecords] = useState<Client[]>([]);
 
-  const appointmentRecords = loadRecords<Appointment>('minha-agenda:appointments', appointments);
-  const orderRecords = loadRecords<Order>('minha-agenda:orders', orders);
-  const billingRecords = loadRecords<BillingCharge>('minha-agenda:billing', billingCharges);
-  const professionalRecords = loadRecords<Professional>('minha-agenda:professionals', professionals);
-  const serviceRecords = loadRecords<Service>('minha-agenda:services', services);
+  useEffect(() => {
+    if (!api) return;
+    api.appointments.list().then(setAppointmentRecords).catch(console.error);
+    api.orders.list().then(setOrderRecords).catch(console.error);
+    api.billing.list().then(setBillingRecords).catch(console.error);
+    api.professionals.list().then(setProfessionalRecords).catch(console.error);
+    api.services.list().then(setServiceRecords).catch(console.error);
+    api.clients.list().then(setClientRecords).catch(console.error);
+  }, [api]);
 
   const cutoff = useMemo(() => dayjs().subtract(Number(period), 'day').startOf('day'), [period]);
 
@@ -259,7 +248,7 @@ export function ReportsPage() {
       <Card radius="xl" p="lg" withBorder>
         <Text fw={700}>Base de referência</Text>
         <Text c="dimmed" size="sm">
-          Clientes: {clients.length} • Serviços ativos: {serviceRecords.filter((service) => service.active).length} • Profissionais ativos:{' '}
+          Clientes: {clientRecords.length} • Serviços ativos: {serviceRecords.filter((service) => service.active).length} • Profissionais ativos:{' '}
           {professionalRecords.filter((professional) => professional.active ?? true).length}
         </Text>
       </Card>

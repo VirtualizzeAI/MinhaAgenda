@@ -22,7 +22,15 @@ function RouteFallback() {
 }
 
 function ProtectedRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, initializing } = useAuth();
+
+  if (initializing) {
+    return (
+      <Center h="100dvh">
+        <Loader color="teal" />
+      </Center>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

@@ -18,10 +18,8 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Plus, Search } from 'lucide-react';
-import { billingCharges } from '@/mocks/billing';
-import { BillingCharge, BillingMethod, BillingStatus } from '@/services/api/contracts';
-
-const BILLING_STORAGE_KEY = 'minha-agenda:billing';
+import { BillingCharge, BillingMethod, BillingStatus, Client } from '@/services/api/contracts';
+import { useApi } from '@/lib/use-api';
 
 type BillingFilter = 'all' | BillingStatus;
 
@@ -47,7 +45,7 @@ const methodLabel: Record<BillingMethod, string> = {
 };
 
 interface NewChargeForm {
-  clientName: string;
+  clientId: string;
   reference: string;
   amount: number;
   dueDate: string;
@@ -56,7 +54,7 @@ interface NewChargeForm {
 }
 
 const initialForm: NewChargeForm = {
-  clientName: '',
+  clientId: '',
   reference: '',
   amount: 100,
   dueDate: dayjs().format('YYYY-MM-DD'),
@@ -65,23 +63,9 @@ const initialForm: NewChargeForm = {
 };
 
 export function BillingPage() {
-  const [records, setRecords] = useState<BillingCharge[]>(() => {
-    if (typeof window === 'undefined') {
-      return billingCharges;
-    }
-
-    const raw = window.localStorage.getItem(BILLING_STORAGE_KEY);
-    if (!raw) {
-      return billingCharges;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as BillingCharge[];
-      return Array.isArray(parsed) ? parsed : billingCharges;
-    } catch {
-      return billingCharges;
-    }
-  });
+  const api = useApi();
+  const [records, setRecords] = useState<BillingCharge[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<BillingFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
@@ -89,8 +73,16 @@ export function BillingPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(BILLING_STORAGE_KEY, JSON.stringify(records));
-  }, [records]);
+    if (!api) return;
+    api.billing.list().then(setRecords).catch(console.error);
+    api.clients
+      .list()
+      .then((data) => {
+        setClients(data);
+        setForm((current) => (current.clientId ? current : { ...current, clientId: data[0]?.id ?? '' }));
+      })
+      .catch(console.error);
+  }, [api]);
 
   const filteredCharges = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -114,10 +106,9 @@ export function BillingPage() {
   const totalPaid = records.reduce((acc, charge) => acc + charge.paidAmount, 0);
 
   const handleCreateCharge = () => {
-    const clientName = form.clientName.trim();
     const reference = form.reference.trim();
 
-    if (!clientName || !reference || !form.dueDate) {
+    if (!form.clientId || !reference || !form.dueDate) {
       setFormError('Preencha cliente, referência e data de vencimento.');
       return;
     }
@@ -133,22 +124,29 @@ export function BillingPage() {
       return;
     }
 
-    const newCharge: BillingCharge = {
-      id: `b${Date.now()}`,
-      clientName,
-      reference,
-      amount: form.amount,
-      paidAmount: 0,
-      dueDate: dueDate.toISOString(),
-      status: dueDate.isBefore(dayjs(), 'day') ? 'overdue' : 'pending',
-      method: form.method,
-      notes: form.notes.trim() || undefined,
-    };
+    if (!api) return;
 
-    setRecords((current) => [newCharge, ...current]);
-    setForm(initialForm);
-    setFormError(null);
-    close();
+    api.billing
+      .create({
+        clientId: form.clientId,
+        reference,
+        amount: form.amount,
+        paidAmount: 0,
+        dueDate: form.dueDate,
+        status: dueDate.isBefore(dayjs(), 'day') ? 'overdue' : 'pending',
+        method: form.method,
+        notes: form.notes.trim() || undefined,
+      })
+      .then(() => api.billing.list())
+      .then((list) => {
+        setRecords(list);
+        setForm({ ...initialForm, clientId: clients[0]?.id ?? '' });
+        setFormError(null);
+        close();
+      })
+      .catch((error: unknown) => {
+        setFormError(error instanceof Error ? error.message : 'Erro ao criar cobrança.');
+      });
   };
 
   const handleRegisterPayment = (chargeId: string, paymentAmount: number) => {
@@ -156,23 +154,19 @@ export function BillingPage() {
       return;
     }
 
-    setRecords((current) =>
-      current.map((charge) => {
-        if (charge.id !== chargeId) {
-          return charge;
-        }
+    if (!api) return;
+    const charge = records.find((item) => item.id === chargeId);
+    if (!charge) return;
 
-        const nextPaidAmount = Math.min(charge.amount, charge.paidAmount + paymentAmount);
-        const nextStatus: BillingStatus =
-          nextPaidAmount >= charge.amount ? 'paid' : nextPaidAmount > 0 ? 'partial' : charge.status;
+    const nextPaidAmount = Math.min(charge.amount, charge.paidAmount + paymentAmount);
+    const nextStatus: BillingStatus =
+      nextPaidAmount >= charge.amount ? 'paid' : nextPaidAmount > 0 ? 'partial' : charge.status;
 
-        return {
-          ...charge,
-          paidAmount: nextPaidAmount,
-          status: nextStatus,
-        };
-      }),
-    );
+    api.billing
+      .update(chargeId, { paidAmount: nextPaidAmount, status: nextStatus })
+      .then(() => api.billing.list())
+      .then(setRecords)
+      .catch(console.error);
   };
 
   return (
@@ -331,15 +325,13 @@ export function BillingPage() {
         title="Nova cobrança"
       >
         <Stack gap="md">
-          <TextInput
+          <Select
+            data={clients.map((client) => ({ value: client.id, label: client.name }))}
             label="Cliente"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setForm((current) => ({ ...current, clientName: value }));
-            }}
-            placeholder="Nome do cliente"
+            onChange={(value) => setForm((current) => ({ ...current, clientId: value ?? '' }))}
+            placeholder="Selecione o cliente"
             radius="xl"
-            value={form.clientName}
+            value={form.clientId}
           />
 
           <TextInput

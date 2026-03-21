@@ -1,61 +1,115 @@
 import {
   PropsWithChildren,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
 } from 'react';
+import { supabase } from '@/lib/supabase';
 import { UserSession } from '@/services/api/contracts';
+
+const API_URL = import.meta.env.VITE_API_URL as string;
 
 interface AuthContextValue {
   user: UserSession | null;
   isAuthenticated: boolean;
+  initializing: boolean;
+  token: string | null;
+  tenantId: string | null;
   login: (credentials: { email: string; password: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
-
-const AUTH_STORAGE_KEY = 'minha-agenda:user';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+async function fetchTenantId(token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_URL}/v1/me/bootstrap`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { memberships: Array<{ tenant_id: string }> };
+    return data.memberships[0]?.tenant_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function createTenant(token: string, name: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_URL}/v1/tenants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { tenant_id?: string; id?: string };
+    return data.tenant_id ?? data.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<UserSession | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(true);
+
+  const bootstrap = useCallback(async (accessToken: string, email: string) => {
+    let tid = await fetchTenantId(accessToken);
+    if (!tid) {
+      const tenantName = email.split('@')[0] ?? 'Minha Empresa';
+      tid = await createTenant(accessToken, tenantName);
+    }
+    setToken(accessToken);
+    setTenantId(tid);
+  }, []);
 
   useEffect(() => {
-    const rawUser = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        const email = session.user.email ?? '';
+        setUser({ name: email, role: 'Gestão', email });
+        bootstrap(session.access_token, email).finally(() => setInitializing(false));
+      } else {
+        setInitializing(false);
+      }
+    });
 
-    if (!rawUser) {
-      return;
-    }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        const email = session.user.email ?? '';
+        setUser({ name: email, role: 'Gestão', email });
+        bootstrap(session.access_token, email);
+      } else {
+        setUser(null);
+        setToken(null);
+        setTenantId(null);
+      }
+    });
 
-    try {
-      setUser(JSON.parse(rawUser) as UserSession);
-    } catch {
-      window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    }
-  }, []);
+    return () => subscription.unsubscribe();
+  }, [bootstrap]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      isAuthenticated: Boolean(user),
-      login: async ({ email }) => {
-        const nextUser: UserSession = {
-          name: 'Olá, Marketing',
-          role: 'Gestão Operacional',
-          email,
-        };
-
-        window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser));
-        setUser(nextUser);
+      isAuthenticated: Boolean(user && tenantId),
+      initializing,
+      token,
+      tenantId,
+      login: async ({ email, password }) => {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw new Error(error.message);
       },
-      logout: () => {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
-        setUser(null);
+      logout: async () => {
+        await supabase.auth.signOut();
       },
     }),
-    [user],
+    [user, token, tenantId, initializing],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -63,10 +117,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 }

@@ -24,17 +24,13 @@ import {
 } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react';
-import { appointments, agendaWeek, professionals } from '@/mocks/agenda';
-import { clients as clientsMock } from '@/mocks/clients';
-import { services as servicesMock } from '@/mocks/services';
-import { Appointment, Client, Service } from '@/services/api/contracts';
+import { Appointment, Client, Professional, Service } from '@/services/api/contracts';
+import { useApi } from '@/lib/use-api';
 import { ProfessionalSelector } from '@/features/agenda/components/ProfessionalSelector';
 import { ScheduleTimeline } from '@/features/agenda/components/ScheduleTimeline';
 import { ScheduleGridDesktop } from '@/features/agenda/components/ScheduleGridDesktop';
 
 type ViewMode = 'day' | 'week';
-const APPOINTMENTS_STORAGE_KEY = 'minha-agenda:appointments';
-const CLIENTS_STORAGE_KEY = 'minha-agenda:clients';
 
 function normalizeSearch(value: string): string {
   return value
@@ -108,71 +104,49 @@ function appointmentsForDate(selectedDate: dayjs.Dayjs, filteredAppointments: Ap
 }
 
 export function AgendaPage() {
-  const [appointmentRecords, setAppointmentRecords] = useState<Appointment[]>(() => {
-    if (typeof window === 'undefined') {
-      return appointments;
-    }
-
-    const raw = window.localStorage.getItem(APPOINTMENTS_STORAGE_KEY);
-
-    if (!raw) {
-      return appointments;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Appointment[];
-      return Array.isArray(parsed) ? parsed : appointments;
-    } catch {
-      return appointments;
-    }
-  });
+  const api = useApi();
+  const [appointmentRecords, setAppointmentRecords] = useState<Appointment[]>([]);
+  const [professionalRecords, setProfessionalRecords] = useState<Professional[]>([]);
   const [view, setView] = useState<ViewMode>('day');
-  const [selectedDate, setSelectedDate] = useState(dayjs('2026-03-21'));
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState(professionals[0]?.id ?? '');
+  const [selectedDate, setSelectedDate] = useState(dayjs());
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState('');
   const [createOpened, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
   const [detailsOpened, { open: openDetailsModal, close: closeDetailsModal }] = useDisclosure(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [newAppointmentForm, setNewAppointmentForm] = useState<NewAppointmentForm>(() =>
-    getInitialAppointmentForm(dayjs('2026-03-21'), professionals[0]?.id ?? ''),
+    getInitialAppointmentForm(dayjs(), ''),
   );
   const [matchedClient, setMatchedClient] = useState<Client | null>(null);
   const [newClientPhone, setNewClientPhone] = useState('');
   const clientCombobox = useCombobox({ onDropdownClose: () => clientCombobox.resetSelectedOption() });
-  const [clientRecords] = useState<Client[]>(() => {
-    if (typeof window === 'undefined') return clientsMock;
-    const raw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
-    if (!raw) return clientsMock;
-    try {
-      const parsed = JSON.parse(raw) as Client[];
-      return Array.isArray(parsed) ? parsed : clientsMock;
-    } catch {
-      return clientsMock;
-    }
-  });
-  const [serviceRecords] = useState<Service[]>(() => {
-    if (typeof window === 'undefined') return servicesMock;
-    const raw = window.localStorage.getItem('minha-agenda:services');
-    if (!raw) return servicesMock;
-    try {
-      const parsed = JSON.parse(raw) as Service[];
-      return Array.isArray(parsed) ? parsed : servicesMock;
-    } catch {
-      return servicesMock;
-    }
-  });
+  const [clientRecords, setClientRecords] = useState<Client[]>([]);
+  const [serviceRecords, setServiceRecords] = useState<Service[]>([]);
   const isDesktop = useMediaQuery('(min-width: 75em)');
 
   useEffect(() => {
-    window.localStorage.setItem(APPOINTMENTS_STORAGE_KEY, JSON.stringify(appointmentRecords));
-  }, [appointmentRecords]);
+    if (!api) return;
+    api.professionals.list().then((data) => {
+      setProfessionalRecords(data);
+      setSelectedProfessionalId((cur) => cur || data[0]?.id || '');
+      setNewAppointmentForm((cur) => cur.professionalId ? cur : { ...cur, professionalId: data[0]?.id ?? '' });
+    }).catch(console.error);
+    api.appointments.list().then(setAppointmentRecords).catch(console.error);
+    api.clients.list().then(setClientRecords).catch(console.error);
+    api.services.list().then(setServiceRecords).catch(console.error);
+  }, [api]);
 
-  const selectedProfessional = professionals.find((professional) => professional.id === selectedProfessionalId);
+  const agendaWeek = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => selectedDate.startOf('week').add(i, 'day')),
+    [selectedDate],
+  );
+
+  const selectedProfessional = professionalRecords.find((professional) => professional.id === selectedProfessionalId);
   const selectedAppointment = selectedAppointmentId
     ? appointmentRecords.find((appointment) => appointment.id === selectedAppointmentId) ?? null
     : null;
   const selectedAppointmentProfessional = selectedAppointment
-    ? professionals.find((professional) => professional.id === selectedAppointment.professionalId)
+    ? professionalRecords.find((professional) => professional.id === selectedAppointment.professionalId)
     : undefined;
 
   const selectedProfessionalAppointments = useMemo(
@@ -232,14 +206,9 @@ export function AgendaPage() {
     () =>
       agendaWeek.map((date) => {
         const dateAppointments = appointmentsForDate(date, appointmentRecords);
-
-        return {
-          date,
-          count: dateAppointments.length,
-          revenueHint: dateAppointments.length * 145,
-        };
+        return { date, count: dateAppointments.length, revenueHint: dateAppointments.length * 145 };
       }),
-    [appointmentRecords],
+    [agendaWeek, appointmentRecords],
   );
 
   const goToAdjacentDay = (direction: -1 | 1) => {
@@ -254,7 +223,7 @@ export function AgendaPage() {
     openCreateModal();
   };
 
-  const handleCreateAppointment = () => {
+  const handleCreateAppointment = async () => {
     const clientName = newAppointmentForm.clientName.trim();
     const serviceName = newAppointmentForm.serviceName.trim();
     const room = newAppointmentForm.room.trim();
@@ -282,45 +251,35 @@ export function AgendaPage() {
       return;
     }
 
+    if (!api) return;
+
     if (!matchedClient) {
-      const newClient: Client = {
-        id: `c${Date.now()}`,
-        name: clientName,
-        cpf: '000.000.000-00',
-        phone: newClientPhone.trim(),
-        email: '',
-        tags: ['incomplete'],
-        lastVisit: dayjs().toISOString(),
-      };
-      let existing: Client[];
-      try {
-        const existingRaw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
-        existing = existingRaw ? (JSON.parse(existingRaw) as Client[]) : clientsMock;
-      } catch {
-        existing = clientsMock;
-      }
-      window.localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify([newClient, ...existing]));
+      api.clients.create({ name: clientName, phone: newClientPhone.trim(), tags: ['incomplete'] })
+        .then((c) => setClientRecords((cur) => [c, ...cur]))
+        .catch(console.error);
     }
 
-    const newAppointment: Appointment = {
-      id: `a${Date.now()}`,
-      professionalId: newAppointmentForm.professionalId,
-      clientName,
-      serviceName,
-      room,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      status: newAppointmentForm.status,
-      notes: newAppointmentForm.notes.trim() || undefined,
-    };
-
-    setAppointmentRecords((current) => [newAppointment, ...current]);
-    setSelectedDate(start);
-    setSelectedProfessionalId(newAppointmentForm.professionalId);
-    setFormError(null);
-    setMatchedClient(null);
-    setNewClientPhone('');
-    closeCreateModal();
+    try {
+      const created = await api.appointments.create({
+        professionalId: newAppointmentForm.professionalId,
+        clientName,
+        serviceName,
+        room,
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        status: newAppointmentForm.status,
+        notes: newAppointmentForm.notes.trim() || undefined,
+      });
+      setAppointmentRecords((current) => [created, ...current]);
+      setSelectedDate(start);
+      setSelectedProfessionalId(newAppointmentForm.professionalId);
+      setFormError(null);
+      setMatchedClient(null);
+      setNewClientPhone('');
+      closeCreateModal();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Erro ao criar agendamento.');
+    }
   };
 
   const handleOpenAppointmentDetails = (appointment: Appointment) => {
@@ -328,28 +287,30 @@ export function AgendaPage() {
     openDetailsModal();
   };
 
-  const handleUpdateAppointmentStatus = (status: Appointment['status']) => {
-    if (!selectedAppointmentId) {
-      return;
+  const handleUpdateAppointmentStatus = async (status: Appointment['status']) => {
+    if (!selectedAppointmentId || !api) return;
+    try {
+      const updated = await api.appointments.update(selectedAppointmentId, { status });
+      setAppointmentRecords((current) =>
+        current.map((a) => (a.id === selectedAppointmentId ? updated : a)),
+      );
+    } catch (err) {
+      console.error(err);
     }
-
-    setAppointmentRecords((current) =>
-      current.map((appointment) =>
-        appointment.id === selectedAppointmentId ? { ...appointment, status } : appointment,
-      ),
-    );
   };
 
-  const handleDeleteAppointment = () => {
-    if (!selectedAppointmentId) {
-      return;
+  const handleDeleteAppointment = async () => {
+    if (!selectedAppointmentId || !api) return;
+    try {
+      await api.appointments.remove(selectedAppointmentId);
+      setAppointmentRecords((current) =>
+        current.filter((a) => a.id !== selectedAppointmentId),
+      );
+      setSelectedAppointmentId(null);
+      closeDetailsModal();
+    } catch (err) {
+      console.error(err);
     }
-
-    setAppointmentRecords((current) =>
-      current.filter((appointment) => appointment.id !== selectedAppointmentId),
-    );
-    setSelectedAppointmentId(null);
-    closeDetailsModal();
   };
 
   return (
@@ -435,7 +396,7 @@ export function AgendaPage() {
 
             <ProfessionalSelector
               onSelect={setSelectedProfessionalId}
-              professionals={professionals}
+              professionals={professionalRecords}
               selectedProfessionalId={selectedProfessionalId}
             />
 
@@ -449,7 +410,7 @@ export function AgendaPage() {
               <ScheduleGridDesktop
                 appointments={appointmentRecords.filter((appointment) => dayjs(appointment.start).isSame(selectedDate, 'day'))}
                 onAppointmentClick={handleOpenAppointmentDetails}
-                professionals={professionals}
+                professionals={professionalRecords}
               />
             ) : null}
 
@@ -659,7 +620,7 @@ export function AgendaPage() {
               value={newAppointmentForm.date}
             />
             <Select
-              data={professionals.map((professional) => ({
+              data={professionalRecords.map((professional) => ({
                 value: professional.id,
                 label: professional.name,
               }))}

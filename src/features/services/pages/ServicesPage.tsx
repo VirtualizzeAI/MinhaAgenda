@@ -18,10 +18,8 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Plus, Search } from 'lucide-react';
-import { services } from '@/mocks/services';
 import { Service, ServiceCategory } from '@/services/api/contracts';
-
-const SERVICES_STORAGE_KEY = 'minha-agenda:services';
+import { useApi } from '@/lib/use-api';
 
 type ServiceFilter = 'all' | ServiceCategory | 'inactive';
 
@@ -52,23 +50,8 @@ const initialForm: NewServiceForm = {
 };
 
 export function ServicesPage() {
-  const [records, setRecords] = useState<Service[]>(() => {
-    if (typeof window === 'undefined') {
-      return services;
-    }
-
-    const raw = window.localStorage.getItem(SERVICES_STORAGE_KEY);
-    if (!raw) {
-      return services;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Service[];
-      return Array.isArray(parsed) ? parsed : services;
-    } catch {
-      return services;
-    }
-  });
+  const api = useApi();
+  const [records, setRecords] = useState<Service[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServiceFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
@@ -77,8 +60,9 @@ export function ServicesPage() {
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(records));
-  }, [records]);
+    if (!api) return;
+    api.services.list().then(setRecords).catch(console.error);
+  }, [api]);
 
   const filteredServices = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -105,7 +89,7 @@ export function ServicesPage() {
       ? 0
       : Math.round(records.reduce((acc, service) => acc + service.price, 0) / records.length);
 
-  const handleSaveService = () => {
+  const handleSaveService = async () => {
     const name = form.name.trim();
 
     if (!name) {
@@ -124,33 +108,35 @@ export function ServicesPage() {
     }
 
     if (editingServiceId) {
-      setRecords((current) =>
-        current.map((service) =>
-          service.id === editingServiceId
-            ? {
-              ...service,
-              name,
-              category: form.category,
-              durationMinutes: form.durationMinutes,
-              price: form.price,
-              active: form.active,
-              description: form.description.trim() || undefined,
-            }
-            : service,
-        ),
-      );
+      try {
+        const updated = await api!.services.update(editingServiceId, {
+          name,
+          category: form.category,
+          durationMinutes: form.durationMinutes,
+          price: form.price,
+          active: form.active,
+          description: form.description.trim() || undefined,
+        });
+        setRecords((current) => current.map((s) => (s.id === editingServiceId ? updated : s)));
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : 'Erro ao salvar serviço.');
+        return;
+      }
     } else {
-      const newService: Service = {
-        id: `s${Date.now()}`,
-        name,
-        category: form.category,
-        durationMinutes: form.durationMinutes,
-        price: form.price,
-        active: form.active,
-        description: form.description.trim() || undefined,
-      };
-
-      setRecords((current) => [newService, ...current]);
+      try {
+        const created = await api!.services.create({
+          name,
+          category: form.category,
+          durationMinutes: form.durationMinutes,
+          price: form.price,
+          active: form.active,
+          description: form.description.trim() || undefined,
+        });
+        setRecords((current) => [created, ...current]);
+      } catch (err) {
+        setFormError(err instanceof Error ? err.message : 'Erro ao salvar serviço.');
+        return;
+      }
     }
 
     setEditingServiceId(null);

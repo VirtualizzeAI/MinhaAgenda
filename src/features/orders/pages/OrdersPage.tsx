@@ -18,10 +18,8 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Plus, Search } from 'lucide-react';
-import { orders } from '@/mocks/orders';
-import { Order, OrderStatus } from '@/services/api/contracts';
-
-const ORDERS_STORAGE_KEY = 'minha-agenda:orders';
+import { Client, Order, OrderStatus, Professional } from '@/services/api/contracts';
+import { useApi } from '@/lib/use-api';
 
 type OrderFilter = 'all' | OrderStatus;
 
@@ -38,39 +36,26 @@ const orderStatusColor: Record<OrderStatus, string> = {
 };
 
 interface NewOrderForm {
-  clientName: string;
-  professionalName: string;
+  clientId: string;
+  professionalId: string;
   itemSummary: string;
   total: number;
   notes: string;
 }
 
 const initialForm: NewOrderForm = {
-  clientName: '',
-  professionalName: '',
+  clientId: '',
+  professionalId: '',
   itemSummary: '',
   total: 100,
   notes: '',
 };
 
 export function OrdersPage() {
-  const [records, setRecords] = useState<Order[]>(() => {
-    if (typeof window === 'undefined') {
-      return orders;
-    }
-
-    const raw = window.localStorage.getItem(ORDERS_STORAGE_KEY);
-    if (!raw) {
-      return orders;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Order[];
-      return Array.isArray(parsed) ? parsed : orders;
-    } catch {
-      return orders;
-    }
-  });
+  const api = useApi();
+  const [records, setRecords] = useState<Order[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<OrderFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
@@ -78,8 +63,17 @@ export function OrdersPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(records));
-  }, [records]);
+    if (!api) return;
+    api.orders.list().then(setRecords).catch(console.error);
+    api.clients.list().then((data) => {
+      setClients(data);
+      setForm((current) => (current.clientId ? current : { ...current, clientId: data[0]?.id ?? '' }));
+    }).catch(console.error);
+    api.professionals.list().then((data) => {
+      setProfessionals(data);
+      setForm((current) => (current.professionalId ? current : { ...current, professionalId: data[0]?.id ?? '' }));
+    }).catch(console.error);
+  }, [api]);
 
   const filteredOrders = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -98,11 +92,9 @@ export function OrdersPage() {
   }, [filter, query, records]);
 
   const handleCreateOrder = () => {
-    const clientName = form.clientName.trim();
-    const professionalName = form.professionalName.trim();
     const itemSummary = form.itemSummary.trim();
 
-    if (!clientName || !professionalName || !itemSummary) {
+    if (!form.clientId || !form.professionalId || !itemSummary) {
       setFormError('Preencha cliente, profissional e itens da comanda.');
       return;
     }
@@ -112,27 +104,39 @@ export function OrdersPage() {
       return;
     }
 
-    const newOrder: Order = {
-      id: `o${Date.now()}`,
-      clientName,
-      professionalName,
-      itemSummary,
-      total: form.total,
-      status: 'open',
-      createdAt: dayjs().toISOString(),
-      notes: form.notes.trim() || undefined,
-    };
-
-    setRecords((current) => [newOrder, ...current]);
-    setForm(initialForm);
-    setFormError(null);
-    close();
+    if (!api) return;
+    api.orders
+      .create({
+        clientId: form.clientId,
+        professionalId: form.professionalId,
+        itemSummary,
+        total: form.total,
+        status: 'open',
+        notes: form.notes.trim() || undefined,
+      })
+      .then(() => api.orders.list())
+      .then((list) => {
+        setRecords(list);
+        setForm({
+          ...initialForm,
+          clientId: clients[0]?.id ?? '',
+          professionalId: professionals[0]?.id ?? '',
+        });
+        setFormError(null);
+        close();
+      })
+      .catch((error: unknown) => {
+        setFormError(error instanceof Error ? error.message : 'Erro ao criar comanda.');
+      });
   };
 
   const handleUpdateStatus = (orderId: string, status: OrderStatus) => {
-    setRecords((current) =>
-      current.map((order) => (order.id === orderId ? { ...order, status } : order)),
-    );
+    if (!api) return;
+    api.orders
+      .update(orderId, { status })
+      .then(() => api.orders.list())
+      .then(setRecords)
+      .catch(console.error);
   };
 
   return (
@@ -290,26 +294,22 @@ export function OrdersPage() {
         title="Nova comanda"
       >
         <Stack gap="md">
-          <TextInput
+          <Select
+            data={clients.map((client) => ({ value: client.id, label: client.name }))}
             label="Cliente"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setForm((current) => ({ ...current, clientName: value }));
-            }}
-            placeholder="Nome do cliente"
+            onChange={(value) => setForm((current) => ({ ...current, clientId: value ?? '' }))}
+            placeholder="Selecione o cliente"
             radius="xl"
-            value={form.clientName}
+            value={form.clientId}
           />
 
-          <TextInput
+          <Select
+            data={professionals.map((professional) => ({ value: professional.id, label: professional.name }))}
             label="Profissional"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setForm((current) => ({ ...current, professionalName: value }));
-            }}
-            placeholder="Nome do profissional"
+            onChange={(value) => setForm((current) => ({ ...current, professionalId: value ?? '' }))}
+            placeholder="Selecione o profissional"
             radius="xl"
-            value={form.professionalName}
+            value={form.professionalId}
           />
 
           <TextInput
