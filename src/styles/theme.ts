@@ -1,0 +1,56 @@
+import { createTheme } from '@mantine/core';
+
+export const theme = createTheme({
+  primaryColor: 'teal',
+  fontFamily: 'Outfit, Segoe UI, sans-serif',
+  headings: {
+    fontFamily: 'Space Grotesk, Outfit, Segoe UI, sans-serif',
+    fontWeight: '700',
+  },
+  radius: {
+    xs: '10px',
+    sm: '14px',
+    md: '18px',
+    lg: '24px',
+    xl: '32px',
+  },
+  colors: {
+    teal: [
+      '#e6fffb',
+      '#c2f7ef',
+      '#99efe2',
+      '#66e5d4',
+      '#3ddcc7',
+      '#23c3ae',
+      '#129689',
+      '#0b6b63',
+      '#04413d',
+      '#001818',
+    ],
+    coral: [
+      '#fff0ed',
+      '#ffd7ce',
+      '#ffb2a0',
+      '#ff8f75',
+      '#ff6f4e',
+      '#ff5937',
+      '#de4020',
+      '#b53014',
+      '#86230d',
+      '#571505',
+    ],
+    ink: [
+      '#eff3f7',
+      '#d7dde5',
+      '#b9c4d0',
+      '#9aaabc',
+      '#7c91a9',
+      '#657990',
+      '#4c5f74',
+      '#334557',
+      '#1c2b3a',
+      '#0a1420',
+    ],
+  },
+  defaultRadius: 'md',
+});
