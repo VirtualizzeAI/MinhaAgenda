@@ -74,6 +74,7 @@ export function ServicesPage() {
   const [opened, { open, close }] = useDisclosure(false);
   const [form, setForm] = useState<NewServiceForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(records));
@@ -104,7 +105,7 @@ export function ServicesPage() {
       ? 0
       : Math.round(records.reduce((acc, service) => acc + service.price, 0) / records.length);
 
-  const handleCreateService = () => {
+  const handleSaveService = () => {
     const name = form.name.trim();
 
     if (!name) {
@@ -122,20 +123,54 @@ export function ServicesPage() {
       return;
     }
 
-    const newService: Service = {
-      id: `s${Date.now()}`,
-      name,
-      category: form.category,
-      durationMinutes: form.durationMinutes,
-      price: form.price,
-      active: form.active,
-      description: form.description.trim() || undefined,
-    };
+    if (editingServiceId) {
+      setRecords((current) =>
+        current.map((service) =>
+          service.id === editingServiceId
+            ? {
+              ...service,
+              name,
+              category: form.category,
+              durationMinutes: form.durationMinutes,
+              price: form.price,
+              active: form.active,
+              description: form.description.trim() || undefined,
+            }
+            : service,
+        ),
+      );
+    } else {
+      const newService: Service = {
+        id: `s${Date.now()}`,
+        name,
+        category: form.category,
+        durationMinutes: form.durationMinutes,
+        price: form.price,
+        active: form.active,
+        description: form.description.trim() || undefined,
+      };
 
-    setRecords((current) => [newService, ...current]);
+      setRecords((current) => [newService, ...current]);
+    }
+
+    setEditingServiceId(null);
     setForm(initialForm);
     setFormError(null);
     close();
+  };
+
+  const handleEditService = (service: Service) => {
+    setEditingServiceId(service.id);
+    setForm({
+      name: service.name,
+      category: service.category,
+      durationMinutes: service.durationMinutes,
+      price: service.price,
+      active: service.active,
+      description: service.description ?? '',
+    });
+    setFormError(null);
+    open();
   };
 
   return (
@@ -156,6 +191,7 @@ export function ServicesPage() {
           <Button
             leftSection={<Plus size={16} />}
             onClick={() => {
+              setEditingServiceId(null);
               setForm(initialForm);
               setFormError(null);
               open();
@@ -238,6 +274,14 @@ export function ServicesPage() {
                   {service.active ? 'Ativo' : 'Inativo'}
                 </Badge>
                 <Text fw={800}>R$ {service.price.toLocaleString('pt-BR')}</Text>
+                <Button
+                  onClick={() => handleEditService(service)}
+                  radius="xl"
+                  size="xs"
+                  variant="outline"
+                >
+                  Editar
+                </Button>
               </Stack>
             </Group>
           </Card>
@@ -257,11 +301,12 @@ export function ServicesPage() {
         centered
         onClose={() => {
           close();
+          setEditingServiceId(null);
           setFormError(null);
         }}
         opened={opened}
         radius="xl"
-        title="Novo serviço"
+        title={editingServiceId ? 'Editar serviço' : 'Novo serviço'}
       >
         <Stack gap="md">
           <TextInput
@@ -347,6 +392,7 @@ export function ServicesPage() {
             <Button
               onClick={() => {
                 close();
+                setEditingServiceId(null);
                 setFormError(null);
               }}
               radius="xl"
@@ -354,8 +400,8 @@ export function ServicesPage() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleCreateService} radius="xl">
-              Salvar serviço
+            <Button onClick={handleSaveService} radius="xl">
+              {editingServiceId ? 'Salvar alterações' : 'Salvar serviço'}
             </Button>
           </Group>
         </Stack>

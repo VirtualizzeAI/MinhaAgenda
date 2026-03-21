@@ -7,6 +7,7 @@ import {
   Group,
   Modal,
   NumberInput,
+  Select,
   SegmentedControl,
   Stack,
   Switch,
@@ -20,6 +21,7 @@ import { professionals } from '@/mocks/agenda';
 import { Professional } from '@/services/api/contracts';
 
 const PROFESSIONALS_STORAGE_KEY = 'minha-agenda:professionals';
+const SPECIALTIES_STORAGE_KEY = 'minha-agenda:professional-specialties';
 
 type ProfessionalFilter = 'all' | 'active' | 'inactive';
 
@@ -38,6 +40,14 @@ const initialForm: NewProfessionalForm = {
   commissionRate: 30,
   active: true,
 };
+
+const defaultSpecialties = Array.from(
+  new Set(professionals.map((professional) => professional.specialty).filter(Boolean)),
+);
+
+function normalizeSpecialty(value: string) {
+  return value.trim().toLowerCase();
+}
 
 function getShortName(name: string) {
   return name
@@ -81,10 +91,37 @@ export function ProfessionalsPage() {
   const [opened, { open, close }] = useDisclosure(false);
   const [form, setForm] = useState<NewProfessionalForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
+  const [newSpecialty, setNewSpecialty] = useState('');
+  const [specialties, setSpecialties] = useState<string[]>(() => {
+    if (typeof window === 'undefined') {
+      return defaultSpecialties;
+    }
+
+    const raw = window.localStorage.getItem(SPECIALTIES_STORAGE_KEY);
+    if (!raw) {
+      return defaultSpecialties;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as string[];
+      if (!Array.isArray(parsed)) {
+        return defaultSpecialties;
+      }
+
+      return parsed.filter((value) => value.trim().length > 0);
+    } catch {
+      return defaultSpecialties;
+    }
+  });
 
   useEffect(() => {
     window.localStorage.setItem(PROFESSIONALS_STORAGE_KEY, JSON.stringify(records));
   }, [records]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SPECIALTIES_STORAGE_KEY, JSON.stringify(specialties));
+  }, [specialties]);
 
   const filteredProfessionals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -104,7 +141,39 @@ export function ProfessionalsPage() {
     });
   }, [filter, query, records]);
 
-  const handleCreateProfessional = () => {
+  const registerSpecialty = (value: string) => {
+    const specialty = value.trim();
+    if (!specialty) {
+      return false;
+    }
+
+    setSpecialties((current) => {
+      const exists = current.some(
+        (item) => normalizeSpecialty(item) === normalizeSpecialty(specialty),
+      );
+
+      if (exists) {
+        return current;
+      }
+
+      return [specialty, ...current].sort((left, right) => left.localeCompare(right));
+    });
+
+    return true;
+  };
+
+  const handleAddSpecialty = () => {
+    const inserted = registerSpecialty(newSpecialty);
+
+    if (!inserted) {
+      return;
+    }
+
+    setForm((current) => ({ ...current, specialty: newSpecialty.trim() }));
+    setNewSpecialty('');
+  };
+
+  const handleSaveProfessional = () => {
     const name = form.name.trim();
     const specialty = form.specialty.trim();
     const phoneDigits = form.phone.replace(/\D/g, '');
@@ -124,20 +193,57 @@ export function ProfessionalsPage() {
       return;
     }
 
-    const newProfessional: Professional = {
-      id: `p${Date.now()}`,
-      name,
-      specialty,
-      shortName: getShortName(name),
-      phone: formatPhone(form.phone),
-      commissionRate: form.commissionRate,
-      active: form.active,
-    };
+    registerSpecialty(specialty);
 
-    setRecords((current) => [newProfessional, ...current]);
+    if (editingProfessionalId) {
+      setRecords((current) =>
+        current.map((professional) =>
+          professional.id === editingProfessionalId
+            ? {
+              ...professional,
+              name,
+              specialty,
+              shortName: getShortName(name),
+              phone: formatPhone(form.phone),
+              commissionRate: form.commissionRate,
+              active: form.active,
+            }
+            : professional,
+        ),
+      );
+    } else {
+      const newProfessional: Professional = {
+        id: `p${Date.now()}`,
+        name,
+        specialty,
+        shortName: getShortName(name),
+        phone: formatPhone(form.phone),
+        commissionRate: form.commissionRate,
+        active: form.active,
+      };
+
+      setRecords((current) => [newProfessional, ...current]);
+    }
+
+    setEditingProfessionalId(null);
+    setNewSpecialty('');
     setForm(initialForm);
     setFormError(null);
     close();
+  };
+
+  const handleEditProfessional = (professional: Professional) => {
+    setEditingProfessionalId(professional.id);
+    setForm({
+      name: professional.name,
+      specialty: professional.specialty,
+      phone: professional.phone ?? '',
+      commissionRate: professional.commissionRate ?? 0,
+      active: professional.active ?? true,
+    });
+    setNewSpecialty('');
+    setFormError(null);
+    open();
   };
 
   const toggleProfessionalStatus = (professionalId: string) => {
@@ -168,7 +274,9 @@ export function ProfessionalsPage() {
           <Button
             leftSection={<Plus size={16} />}
             onClick={() => {
+              setEditingProfessionalId(null);
               setForm(initialForm);
+              setNewSpecialty('');
               setFormError(null);
               open();
             }}
@@ -256,6 +364,14 @@ export function ProfessionalsPage() {
                 >
                   {professional.active ?? true ? 'Inativar' : 'Ativar'}
                 </Button>
+                <Button
+                  onClick={() => handleEditProfessional(professional)}
+                  radius="xl"
+                  size="xs"
+                  variant="outline"
+                >
+                  Editar
+                </Button>
               </Stack>
             </Group>
           </Card>
@@ -275,11 +391,13 @@ export function ProfessionalsPage() {
         centered
         onClose={() => {
           close();
+          setEditingProfessionalId(null);
+          setNewSpecialty('');
           setFormError(null);
         }}
         opened={opened}
         radius="xl"
-        title="Novo profissional"
+        title={editingProfessionalId ? 'Editar profissional' : 'Novo profissional'}
       >
         <Stack gap="md">
           <TextInput
@@ -293,16 +411,37 @@ export function ProfessionalsPage() {
             value={form.name}
           />
 
-          <TextInput
+          <Select
+            data={specialties.map((specialty) => ({
+              value: specialty,
+              label: specialty,
+            }))}
             label="Especialidade"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setForm((current) => ({ ...current, specialty: value }));
+            onChange={(value) => {
+              setForm((current) => ({ ...current, specialty: value ?? '' }));
             }}
-            placeholder="Ex: Podologia"
+            placeholder="Selecione uma especialidade"
             radius="xl"
+            searchable
             value={form.specialty}
           />
+
+          <Group align="flex-end" wrap="nowrap">
+            <TextInput
+              label="Criar nova especialidade"
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setNewSpecialty(value);
+              }}
+              placeholder="Ex: Reflexologia"
+              radius="xl"
+              style={{ flex: 1 }}
+              value={newSpecialty}
+            />
+            <Button onClick={handleAddSpecialty} radius="xl" variant="light">
+              Adicionar
+            </Button>
+          </Group>
 
           <TextInput
             label="Telefone"
@@ -345,6 +484,8 @@ export function ProfessionalsPage() {
             <Button
               onClick={() => {
                 close();
+                setEditingProfessionalId(null);
+                setNewSpecialty('');
                 setFormError(null);
               }}
               radius="xl"
@@ -352,8 +493,8 @@ export function ProfessionalsPage() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleCreateProfessional} radius="xl">
-              Salvar profissional
+            <Button onClick={handleSaveProfessional} radius="xl">
+              {editingProfessionalId ? 'Salvar alterações' : 'Salvar profissional'}
             </Button>
           </Group>
         </Stack>

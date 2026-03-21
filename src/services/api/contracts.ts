@@ -28,7 +28,7 @@ export interface Appointment {
   notes?: string;
 }
 
-export type ClientTag = 'vip' | 'new' | 'attention' | 'inactive';
+export type ClientTag = 'vip' | 'new' | 'attention' | 'inactive' | 'incomplete';
 
 export interface Client {
   id: string;

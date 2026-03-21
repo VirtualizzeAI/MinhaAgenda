@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   ActionIcon,
+  Autocomplete,
   Badge,
   Button,
   Card,
+  Combobox,
   Grid,
   Group,
   Modal,
@@ -18,17 +20,48 @@ import {
   Textarea,
   ThemeIcon,
   Title,
+  useCombobox,
 } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import { appointments, agendaWeek, professionals } from '@/mocks/agenda';
-import { Appointment } from '@/services/api/contracts';
+import { clients as clientsMock } from '@/mocks/clients';
+import { services as servicesMock } from '@/mocks/services';
+import { Appointment, Client, Service } from '@/services/api/contracts';
 import { ProfessionalSelector } from '@/features/agenda/components/ProfessionalSelector';
 import { ScheduleTimeline } from '@/features/agenda/components/ScheduleTimeline';
 import { ScheduleGridDesktop } from '@/features/agenda/components/ScheduleGridDesktop';
 
 type ViewMode = 'day' | 'week';
 const APPOINTMENTS_STORAGE_KEY = 'minha-agenda:appointments';
+const CLIENTS_STORAGE_KEY = 'minha-agenda:clients';
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function addMinutesToTime(timeStr: string, minutes: number): string {
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0] ?? '0', 10);
+  const m = parseInt(parts[1] ?? '0', 10);
+  const total = h * 60 + m + minutes;
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
+}
+
+function formatPhoneAgenda(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10)
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+}
 
 const statusOptions = [
   { value: 'confirmed', label: 'Confirmado' },
@@ -103,6 +136,31 @@ export function AgendaPage() {
   const [newAppointmentForm, setNewAppointmentForm] = useState<NewAppointmentForm>(() =>
     getInitialAppointmentForm(dayjs('2026-03-21'), professionals[0]?.id ?? ''),
   );
+  const [matchedClient, setMatchedClient] = useState<Client | null>(null);
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const clientCombobox = useCombobox({ onDropdownClose: () => clientCombobox.resetSelectedOption() });
+  const [clientRecords] = useState<Client[]>(() => {
+    if (typeof window === 'undefined') return clientsMock;
+    const raw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
+    if (!raw) return clientsMock;
+    try {
+      const parsed = JSON.parse(raw) as Client[];
+      return Array.isArray(parsed) ? parsed : clientsMock;
+    } catch {
+      return clientsMock;
+    }
+  });
+  const [serviceRecords] = useState<Service[]>(() => {
+    if (typeof window === 'undefined') return servicesMock;
+    const raw = window.localStorage.getItem('minha-agenda:services');
+    if (!raw) return servicesMock;
+    try {
+      const parsed = JSON.parse(raw) as Service[];
+      return Array.isArray(parsed) ? parsed : servicesMock;
+    } catch {
+      return servicesMock;
+    }
+  });
   const isDesktop = useMediaQuery('(min-width: 75em)');
 
   useEffect(() => {
@@ -121,6 +179,38 @@ export function AgendaPage() {
     () => appointmentRecords.filter((appointment) => appointment.professionalId === selectedProfessionalId),
     [appointmentRecords, selectedProfessionalId],
   );
+
+  const clientSuggestions = useMemo((): Client[] => {
+    const q = newAppointmentForm.clientName.trim();
+    if (q.length < 2) return [];
+    const normalized = normalizeSearch(q);
+    const digits = q.replace(/\D/g, '');
+    return clientRecords
+      .filter((c) => {
+        const nameMatch = normalizeSearch(c.name).includes(normalized);
+        const emailMatch = c.email ? normalizeSearch(c.email).includes(normalized) : false;
+        const cpfMatch = digits.length > 0 && c.cpf.replace(/\D/g, '').includes(digits);
+        const phoneMatch = digits.length > 0 && c.phone.replace(/\D/g, '').includes(digits);
+        return nameMatch || emailMatch || cpfMatch || phoneMatch;
+      })
+      .slice(0, 6);
+  }, [clientRecords, newAppointmentForm.clientName]);
+
+  const activeServiceNames = useMemo(
+    () => serviceRecords.filter((s) => s.active).map((s) => s.name),
+    [serviceRecords],
+  );
+
+  const selectedService = useMemo(() => {
+    const serviceName = normalizeSearch(newAppointmentForm.serviceName);
+    if (!serviceName) {
+      return undefined;
+    }
+
+    return serviceRecords.find(
+      (service) => normalizeSearch(service.name) === serviceName,
+    );
+  }, [newAppointmentForm.serviceName, serviceRecords]);
 
   const dailyAppointments = useMemo(
     () => appointmentsForDate(selectedDate, selectedProfessionalAppointments).sort((left, right) => dayjs(left.start).valueOf() - dayjs(right.start).valueOf()),
@@ -158,6 +248,8 @@ export function AgendaPage() {
 
   const handleOpenCreateModal = () => {
     setFormError(null);
+    setMatchedClient(null);
+    setNewClientPhone('');
     setNewAppointmentForm(getInitialAppointmentForm(selectedDate, selectedProfessionalId));
     openCreateModal();
   };
@@ -167,8 +259,13 @@ export function AgendaPage() {
     const serviceName = newAppointmentForm.serviceName.trim();
     const room = newAppointmentForm.room.trim();
 
-    if (!clientName || !serviceName || !room || !newAppointmentForm.professionalId) {
-      setFormError('Preencha cliente, serviço, sala e profissional.');
+    if (!clientName || !serviceName || !newAppointmentForm.professionalId) {
+      setFormError('Preencha cliente, serviço e profissional.');
+      return;
+    }
+
+    if (!matchedClient && newClientPhone.replace(/\D/g, '').length < 10) {
+      setFormError('Informe o telefone do novo cliente (com DDD).');
       return;
     }
 
@@ -183,6 +280,26 @@ export function AgendaPage() {
     if (!start.isValid() || !end.isValid() || !end.isAfter(start)) {
       setFormError('O horário final deve ser maior que o inicial.');
       return;
+    }
+
+    if (!matchedClient) {
+      const newClient: Client = {
+        id: `c${Date.now()}`,
+        name: clientName,
+        cpf: '000.000.000-00',
+        phone: newClientPhone.trim(),
+        email: '',
+        tags: ['incomplete'],
+        lastVisit: dayjs().toISOString(),
+      };
+      let existing: Client[];
+      try {
+        const existingRaw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
+        existing = existingRaw ? (JSON.parse(existingRaw) as Client[]) : clientsMock;
+      } catch {
+        existing = clientsMock;
+      }
+      window.localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify([newClient, ...existing]));
     }
 
     const newAppointment: Appointment = {
@@ -201,6 +318,8 @@ export function AgendaPage() {
     setSelectedDate(start);
     setSelectedProfessionalId(newAppointmentForm.professionalId);
     setFormError(null);
+    setMatchedClient(null);
+    setNewClientPhone('');
     closeCreateModal();
   };
 
@@ -440,30 +559,90 @@ export function AgendaPage() {
         onClose={() => {
           closeCreateModal();
           setFormError(null);
+          setMatchedClient(null);
+          setNewClientPhone('');
         }}
         opened={createOpened}
         radius="xl"
         title="Novo agendamento"
       >
         <Stack gap="md">
-          <TextInput
-            label="Cliente"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setNewAppointmentForm((current) => ({ ...current, clientName: value }));
+          <Combobox
+            onOptionSubmit={(clientId) => {
+              const client = clientRecords.find((c) => c.id === clientId);
+              if (client) {
+                setMatchedClient(client);
+                setNewAppointmentForm((current) => ({ ...current, clientName: client.name }));
+                setNewClientPhone('');
+              }
+              clientCombobox.closeDropdown();
             }}
-            placeholder="Nome do cliente"
-            radius="xl"
-            value={newAppointmentForm.clientName}
-          />
+            store={clientCombobox}
+            withinPortal={false}
+          >
+            <Combobox.Target>
+              <TextInput
+                label="Cliente"
+                onBlur={() => clientCombobox.closeDropdown()}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setNewAppointmentForm((current) => ({ ...current, clientName: value }));
+                  if (matchedClient && value !== matchedClient.name) setMatchedClient(null);
+                  clientCombobox.openDropdown();
+                }}
+                onFocus={() => {
+                  if (newAppointmentForm.clientName.trim().length >= 2) clientCombobox.openDropdown();
+                }}
+                placeholder="Nome, CPF, telefone ou e-mail"
+                radius="xl"
+                rightSection={matchedClient ? <Text c="teal" size="xs">✓</Text> : null}
+                value={newAppointmentForm.clientName}
+              />
+            </Combobox.Target>
+            <Combobox.Dropdown>
+              <Combobox.Options>
+                {clientSuggestions.map((client) => (
+                  <Combobox.Option key={client.id} value={client.id}>
+                    <Stack gap={0}>
+                      <Text fw={600} size="sm">{client.name}</Text>
+                      <Text c="dimmed" size="xs">{client.phone}</Text>
+                    </Stack>
+                  </Combobox.Option>
+                ))}
+                {clientSuggestions.length === 0 && newAppointmentForm.clientName.trim().length >= 2 ? (
+                  <Combobox.Empty>Nenhum cadastro — será salvo como novo cliente</Combobox.Empty>
+                ) : null}
+              </Combobox.Options>
+            </Combobox.Dropdown>
+          </Combobox>
 
-          <TextInput
+          {!matchedClient && newAppointmentForm.clientName.trim().length > 0 ? (
+            <TextInput
+              label="Telefone (novo cliente)"
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setNewClientPhone(formatPhoneAgenda(value));
+              }}
+              placeholder="(00) 00000-0000"
+              radius="xl"
+              value={newClientPhone}
+            />
+          ) : null}
+
+          <Autocomplete
+            data={activeServiceNames}
             label="Serviço"
-            onChange={(event) => {
-              const value = event.currentTarget.value;
+            onChange={(value) => {
               setNewAppointmentForm((current) => ({ ...current, serviceName: value }));
             }}
-            placeholder="Ex: Podologia completa"
+            onOptionSubmit={(value) => {
+              const service = serviceRecords.find((s) => s.name === value);
+              if (service) {
+                const endTime = addMinutesToTime(newAppointmentForm.startTime, service.durationMinutes);
+                setNewAppointmentForm((current) => ({ ...current, serviceName: value, endTime }));
+              }
+            }}
+            placeholder="Buscar ou digitar serviço"
             radius="xl"
             value={newAppointmentForm.serviceName}
           />
@@ -501,7 +680,17 @@ export function AgendaPage() {
               label="Início"
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                setNewAppointmentForm((current) => ({ ...current, startTime: value }));
+                setNewAppointmentForm((current) => {
+                  const nextEndTime = selectedService
+                    ? addMinutesToTime(value, selectedService.durationMinutes)
+                    : current.endTime;
+
+                  return {
+                    ...current,
+                    startTime: value,
+                    endTime: nextEndTime,
+                  };
+                });
               }}
               radius="xl"
               type="time"
@@ -577,6 +766,8 @@ export function AgendaPage() {
               onClick={() => {
                 closeCreateModal();
                 setFormError(null);
+                setMatchedClient(null);
+                setNewClientPhone('');
               }}
               radius="xl"
               variant="light"

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   ActionIcon,
@@ -10,6 +10,7 @@ import {
   Group,
   Modal,
   SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -20,7 +21,23 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { CalendarPlus, Search, UserPlus, Users } from 'lucide-react';
 import { clients } from '@/mocks/clients';
-import { Client, ClientTag } from '@/services/api/contracts';
+import { professionals } from '@/mocks/agenda';
+import { Appointment, Client, ClientTag } from '@/services/api/contracts';
+
+const APPOINTMENTS_STORAGE_KEY = 'minha-agenda:appointments';
+const CLIENTS_STORAGE_KEY = 'minha-agenda:clients';
+
+interface NewAppointmentForm {
+  date: string;
+  startTime: string;
+  endTime: string;
+  clientName: string;
+  serviceName: string;
+  room: string;
+  professionalId: string;
+  status: Appointment['status'];
+  notes: string;
+}
 
 type FilterMode = 'all' | ClientTag;
 
@@ -30,6 +47,7 @@ const filterLabels: Record<FilterMode, string> = {
   new: 'Novos',
   attention: 'Atenção',
   inactive: 'Inativos',
+  incomplete: 'Incompl.',
 };
 
 const tagColors: Record<ClientTag, string> = {
@@ -37,6 +55,7 @@ const tagColors: Record<ClientTag, string> = {
   new: 'coral',
   attention: 'yellow',
   inactive: 'gray',
+  incomplete: 'orange',
 };
 
 function normalizeText(value: string) {
@@ -90,7 +109,24 @@ const initialForm: NewClientForm = {
 };
 
 export function ClientsPage() {
-  const [clientRecords, setClientRecords] = useState<Client[]>(clients);
+  const [clientRecords, setClientRecords] = useState<Client[]>(() => {
+    if (typeof window === 'undefined') {
+      return clients;
+    }
+
+    const raw = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
+
+    if (!raw) {
+      return clients;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Client[];
+      return Array.isArray(parsed) ? parsed : clients;
+    } catch {
+      return clients;
+    }
+  });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -98,6 +134,13 @@ export function ClientsPage() {
   const [createOpened, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
   const [form, setForm] = useState<NewClientForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
+  const [scheduleOpened, { open: openScheduleModal, close: closeScheduleModal }] = useDisclosure(false);
+  const [scheduleForm, setScheduleForm] = useState<NewAppointmentForm | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clientRecords));
+  }, [clientRecords]);
 
   const filteredClients = useMemo(() => {
     const normalizedText = normalizeText(query);
@@ -130,6 +173,65 @@ export function ClientsPage() {
   const handleOpenClient = (client: Client) => {
     setSelectedClient(client);
     open();
+  };
+
+  const handleOpenScheduleModal = (client: Client) => {
+    setScheduleError(null);
+    setScheduleForm({
+      date: dayjs().format('YYYY-MM-DD'),
+      startTime: '09:00',
+      endTime: '10:00',
+      clientName: client.name,
+      serviceName: '',
+      room: '',
+      professionalId: professionals[0]?.id ?? '',
+      status: 'confirmed',
+      notes: '',
+    });
+    openScheduleModal();
+  };
+
+  const handleCreateAppointment = () => {
+    if (!scheduleForm) return;
+
+    const serviceName = scheduleForm.serviceName.trim();
+    const room = scheduleForm.room.trim();
+
+    if (!serviceName || !room || !scheduleForm.professionalId) {
+      setScheduleError('Preencha serviço, sala e profissional.');
+      return;
+    }
+
+    const start = dayjs(`${scheduleForm.date}T${scheduleForm.startTime}`);
+    const end = dayjs(`${scheduleForm.date}T${scheduleForm.endTime}`);
+
+    if (!start.isValid() || !end.isValid() || !end.isAfter(start)) {
+      setScheduleError('O horário final deve ser maior que o inicial.');
+      return;
+    }
+
+    const newAppointment: Appointment = {
+      id: `a${Date.now()}`,
+      professionalId: scheduleForm.professionalId,
+      clientName: scheduleForm.clientName,
+      serviceName,
+      room,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      status: scheduleForm.status,
+      notes: scheduleForm.notes.trim() || undefined,
+    };
+
+    const existing: Appointment[] = JSON.parse(
+      window.localStorage.getItem(APPOINTMENTS_STORAGE_KEY) ?? '[]',
+    );
+    window.localStorage.setItem(
+      APPOINTMENTS_STORAGE_KEY,
+      JSON.stringify([newAppointment, ...existing]),
+    );
+
+    setScheduleError(null);
+    closeScheduleModal();
   };
 
   const handleCreateClient = () => {
@@ -284,7 +386,14 @@ export function ClientsPage() {
               </Group>
 
               <Group gap="xs" wrap="nowrap">
-                <ActionIcon radius="xl" size={38} variant="light">
+                <ActionIcon
+                  color="teal"
+                  onClick={() => handleOpenScheduleModal(client)}
+                  radius="xl"
+                  size={38}
+                  title="Novo agendamento"
+                  variant="light"
+                >
                   <CalendarPlus size={16} />
                 </ActionIcon>
                 <Button onClick={() => handleOpenClient(client)} radius="xl" variant="light">
@@ -487,6 +596,153 @@ export function ClientsPage() {
           </Group>
         </Stack>
       </Modal>
+      {scheduleForm ? (
+        <Modal
+          centered
+          onClose={() => {
+            closeScheduleModal();
+            setScheduleError(null);
+          }}
+          opened={scheduleOpened}
+          radius="xl"
+          title="Novo agendamento"
+        >
+          <Stack gap="md">
+            <TextInput
+              disabled
+              label="Cliente"
+              radius="xl"
+              value={scheduleForm.clientName}
+            />
+
+            <TextInput
+              label="Serviço"
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setScheduleForm((current) => current ? { ...current, serviceName: value } : current);
+              }}
+              placeholder="Ex: Podologia completa"
+              radius="xl"
+              value={scheduleForm.serviceName}
+            />
+
+            <Group grow>
+              <TextInput
+                label="Data"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setScheduleForm((current) => current ? { ...current, date: value } : current);
+                }}
+                radius="xl"
+                type="date"
+                value={scheduleForm.date}
+              />
+              <Select
+                data={professionals.map((professional) => ({
+                  value: professional.id,
+                  label: professional.name,
+                }))}
+                label="Profissional"
+                onChange={(value) => {
+                  setScheduleForm((current) =>
+                    current ? { ...current, professionalId: value ?? current.professionalId } : current,
+                  );
+                }}
+                radius="xl"
+                value={scheduleForm.professionalId}
+              />
+            </Group>
+
+            <Group grow>
+              <TextInput
+                label="Início"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setScheduleForm((current) => current ? { ...current, startTime: value } : current);
+                }}
+                radius="xl"
+                type="time"
+                value={scheduleForm.startTime}
+              />
+              <TextInput
+                label="Fim"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setScheduleForm((current) => current ? { ...current, endTime: value } : current);
+                }}
+                radius="xl"
+                type="time"
+                value={scheduleForm.endTime}
+              />
+            </Group>
+
+            <Group grow>
+              <TextInput
+                label="Sala"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setScheduleForm((current) => current ? { ...current, room: value } : current);
+                }}
+                placeholder="Ex: Sala 02"
+                radius="xl"
+                value={scheduleForm.room}
+              />
+              <Select
+                data={[
+                  { value: 'confirmed', label: 'Confirmado' },
+                  { value: 'in-progress', label: 'Em atendimento' },
+                  { value: 'attention', label: 'Atenção' },
+                  { value: 'available', label: 'Bloqueio' },
+                ]}
+                label="Status"
+                onChange={(value) => {
+                  if (!value) return;
+                  setScheduleForm((current) =>
+                    current ? { ...current, status: value as Appointment['status'] } : current,
+                  );
+                }}
+                radius="xl"
+                value={scheduleForm.status}
+              />
+            </Group>
+
+            <Textarea
+              autosize
+              label="Observações"
+              minRows={2}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setScheduleForm((current) => current ? { ...current, notes: value } : current);
+              }}
+              placeholder="Detalhes rápidos do atendimento"
+              radius="xl"
+              value={scheduleForm.notes}
+            />
+
+            {scheduleError ? (
+              <Text c="red" fw={600} size="sm">
+                {scheduleError}
+              </Text>
+            ) : null}
+
+            <Group grow>
+              <Button
+                onClick={() => {
+                  closeScheduleModal();
+                  setScheduleError(null);
+                }}
+                radius="xl"
+                variant="light"
+              >
+                Cancelar
+              </Button>
+              <Button onClick={handleCreateAppointment} radius="xl">
+                Salvar agendamento
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+      ) : null}
     </Stack>
   );
 }
