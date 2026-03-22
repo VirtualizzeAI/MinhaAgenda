@@ -1,9 +1,8 @@
-import { PropsWithChildren, useState } from 'react';
+import { PropsWithChildren } from 'react';
 import {
   ActionIcon,
   AppShell,
   Avatar,
-  Badge,
   Box,
   Burger,
   Button,
@@ -128,7 +127,13 @@ export function AppShellLayout({ children }: PropsWithChildren) {
   const [opened, { toggle, close }] = useDisclosure(false);
   const { logout, user } = useAuth();
   const isDesktop = useMediaQuery('(min-width: 62em)');
-  const [searchOpen, setSearchOpen] = useState(false);
+
+  const greetingByTime = (() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bom dia';
+    if (hour < 18) return 'Boa tarde';
+    return 'Boa noite';
+  })();
 
   return (
     <>
@@ -153,13 +158,15 @@ export function AppShellLayout({ children }: PropsWithChildren) {
             </Group>
 
             <Group gap="xs">
-              <ActionIcon onClick={() => setSearchOpen((current) => !current)} radius="xl" size={42} variant="light">
+              <ActionIcon aria-label="Busca rápida (desativado)" disabled radius="xl" size={42} variant="light">
                 <Search size={18} />
               </ActionIcon>
-              <ActionIcon radius="xl" size={42} variant="light">
-                <Menu size={18} />
-              </ActionIcon>
-              <Avatar color="teal" radius="xl">M</Avatar>
+              {!isDesktop ? (
+                <ActionIcon aria-label="Menu" radius="xl" size={42} variant="light">
+                  <Menu size={18} />
+                </ActionIcon>
+              ) : null}
+              <Avatar color="teal" radius="xl" style={{ display: 'none' }}>M</Avatar>
             </Group>
           </Group>
         </AppShell.Header>
@@ -170,16 +177,10 @@ export function AppShellLayout({ children }: PropsWithChildren) {
               <Group justify="space-between">
                 <Box>
                   <Text c="dimmed" fw={600} size="xs" tt="uppercase">
-                    Sessão ativa
+                    {greetingByTime}
                   </Text>
-                  <Text fw={800}>{user?.name ?? 'Equipe'}</Text>
-                  <Text c="dimmed" size="sm">
-                    {user?.role}
-                  </Text>
+                  <Text fw={800}>{user?.name ?? 'Bem-vindo'}</Text>
                 </Box>
-                <Badge color="teal" radius="xl" variant="light">
-                  Online
-                </Badge>
               </Group>
             </Card>
           </AppShell.Section>
@@ -218,15 +219,6 @@ export function AppShellLayout({ children }: PropsWithChildren) {
         </AppShell.Navbar>
 
         <AppShell.Main pb={isDesktop ? 'md' : 96}>
-          {searchOpen ? (
-            <Card mb="md" p="md" radius="xl" withBorder>
-              <Text fw={700}>Busca rápida</Text>
-              <Text c="dimmed" size="sm">
-                Estrutura pronta para pesquisa global de clientes, horários e comandas.
-              </Text>
-            </Card>
-          ) : null}
-
           {children}
         </AppShell.Main>
       </AppShell>

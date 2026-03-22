@@ -450,7 +450,7 @@ export function AgendaPage() {
                   Profissional ativo
                 </Text>
                 <Text fw={800} mt={8} size="xl">
-                  {selectedProfessional?.name}
+                  {selectedProfessional?.name || "0"}
                 </Text>
                 <Badge color="teal" mt="md" radius="xl" variant="light">
                   {selectedProfessional?.specialty}

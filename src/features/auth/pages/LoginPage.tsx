@@ -18,8 +18,8 @@ import { useAuth } from '@/features/auth/auth-context';
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('marketing@minhaagenda.app');
-  const [password, setPassword] = useState('123456');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -99,9 +99,9 @@ export function LoginPage() {
                 Acessar sistema
               </Button>
 
-              <Text c="dimmed" size="sm">
+              {/* <Text c="dimmed" size="sm">
                 Conta demo pronta. Depois podemos substituir por autenticação real e permissões por perfil.
-              </Text>
+              </Text> */}
               <Anchor c="teal.7" fw={700} size="sm">
                 Esqueci minha senha
               </Anchor>

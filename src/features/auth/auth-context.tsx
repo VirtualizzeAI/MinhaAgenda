@@ -24,6 +24,19 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function toDisplayName(email: string, fullName?: string | null): string {
+  if (fullName?.trim()) return fullName.trim();
+
+  const localPart = (email.split('@')[0] ?? '').replace(/[._-]+/g, ' ').trim();
+  if (!localPart) return 'Usuário';
+
+  return localPart
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 async function fetchTenantId(token: string): Promise<string | null> {
   try {
     const res = await fetch(`${API_URL}/v1/me/bootstrap`, {
@@ -72,7 +85,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         const email = session.user.email ?? '';
-        setUser({ name: email, role: 'Gestão', email });
+        const fullName = (session.user.user_metadata?.full_name ?? session.user.user_metadata?.name) as string | undefined;
+        setUser({ name: toDisplayName(email, fullName), role: 'Gestão', email });
         bootstrap(session.access_token, email).finally(() => setInitializing(false));
       } else {
         setInitializing(false);
@@ -82,7 +96,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         const email = session.user.email ?? '';
-        setUser({ name: email, role: 'Gestão', email });
+        const fullName = (session.user.user_metadata?.full_name ?? session.user.user_metadata?.name) as string | undefined;
+        setUser({ name: toDisplayName(email, fullName), role: 'Gestão', email });
         bootstrap(session.access_token, email);
       } else {
         setUser(null);
