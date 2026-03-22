@@ -152,7 +152,7 @@ export function AppShellLayout({ children }: PropsWithChildren) {
                 <CalendarDays size={22} />
               </ThemeIcon>
               <div>
-                <Title order={4}>MinhaAgenda</Title>
+                <Title order={4}>Markei</Title>
                 <Text c="dimmed" size="xs">
                   Gestão de agenda e serviços
                 </Text>

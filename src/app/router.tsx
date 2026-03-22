@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '@/features/auth/auth-context';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
+const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
 const AppShellLayout = lazy(() => import('@/layouts/AppShellLayout').then((module) => ({ default: module.AppShellLayout })));
 const AgendaPage = lazy(() => import('@/features/agenda/pages/AgendaPage').then((module) => ({ default: module.AgendaPage })));
 const ClientsPage = lazy(() => import('@/features/clients/pages/ClientsPage').then((module) => ({ default: module.ClientsPage })));
@@ -72,6 +73,14 @@ export function AppRouter() {
                 <LoginPage />
               </Suspense>
             )
+          }
+        />
+        <Route
+          path="/recuperar-senha"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <ForgotPasswordPage />
+            </Suspense>
           }
         />
         <Route path="/*" element={<ProtectedRoutes />} />
