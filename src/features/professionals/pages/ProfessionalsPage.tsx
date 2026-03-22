@@ -4,11 +4,13 @@ import {
   Badge,
   Button,
   Card,
+  Divider,
   Group,
   Modal,
   NumberInput,
   Select,
   SegmentedControl,
+  SimpleGrid,
   Stack,
   Switch,
   Text,
@@ -16,7 +18,7 @@ import {
   Title,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Plus, Search } from 'lucide-react';
+import { CalendarDays, Plus, Search } from 'lucide-react';
 import { Professional } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 
@@ -30,6 +32,13 @@ interface NewProfessionalForm {
   active: boolean;
 }
 
+interface ScheduleDraft {
+  id: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+}
+
 const initialForm: NewProfessionalForm = {
   name: '',
   specialty: '',
@@ -39,6 +48,24 @@ const initialForm: NewProfessionalForm = {
 };
 
 const defaultSpecialties: string[] = [];
+const intervalUnitOptions = [
+  { value: 'minutes', label: 'Minutos' },
+  { value: 'hours', label: 'Horas' },
+];
+const weekdayOptions = [
+  { value: '1', label: 'Segunda' },
+  { value: '2', label: 'Terça' },
+  { value: '3', label: 'Quarta' },
+  { value: '4', label: 'Quinta' },
+  { value: '5', label: 'Sexta' },
+  { value: '6', label: 'Sábado' },
+  { value: '0', label: 'Domingo' },
+];
+
+function toMinutes(time: string): number {
+  const [h, m] = time.split(':');
+  return Number(h) * 60 + Number(m);
+}
 
 function normalizeSpecialty(value: string) {
   return value.trim().toLowerCase();
@@ -60,11 +87,21 @@ export function ProfessionalsPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ProfessionalFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
+  const [scheduleOpened, { open: openSchedule, close: closeSchedule }] = useDisclosure(false);
   const [form, setForm] = useState<NewProfessionalForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
   const [newSpecialty, setNewSpecialty] = useState('');
   const [specialties, setSpecialties] = useState<string[]>(defaultSpecialties);
+  const [scheduleProfessional, setScheduleProfessional] = useState<Professional | null>(null);
+  const [scheduleRows, setScheduleRows] = useState<ScheduleDraft[]>([]);
+  const [scheduleWeekday, setScheduleWeekday] = useState('1');
+  const [scheduleStart, setScheduleStart] = useState('08:00');
+  const [scheduleEnd, setScheduleEnd] = useState('10:30');
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleIntervalValue, setScheduleIntervalValue] = useState<number>(30);
+  const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<'minutes' | 'hours'>('minutes');
 
   useEffect(() => {
     if (!api) return;
@@ -209,6 +246,126 @@ export function ProfessionalsPage() {
     setRecords((current) => current.map((p) => (p.id === professionalId ? updated : p)));
   }, [api, records]);
 
+  const handleOpenSchedule = useCallback(async (professional: Professional) => {
+    if (!api) return;
+    setScheduleProfessional(professional);
+    setScheduleError(null);
+    setSavingSchedule(false);
+
+    try {
+      const existing = await api.professionals.schedules.list(professional.id);
+      const mapped = existing.records.map((slot) => ({
+        id: slot.id,
+        weekday: slot.weekday,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+      }));
+      const intervalMinutes = existing.slotIntervalMinutes || 30;
+      if (intervalMinutes % 60 === 0 && intervalMinutes >= 60) {
+        setScheduleIntervalValue(intervalMinutes / 60);
+        setScheduleIntervalUnit('hours');
+      } else {
+        setScheduleIntervalValue(intervalMinutes);
+        setScheduleIntervalUnit('minutes');
+      }
+      setScheduleRows(mapped);
+      openSchedule();
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : 'Erro ao carregar agenda do profissional.');
+      setScheduleRows([]);
+      openSchedule();
+    }
+  }, [api, openSchedule]);
+
+  const handleAddShift = () => {
+    const weekday = Number(scheduleWeekday);
+    if (toMinutes(scheduleEnd) <= toMinutes(scheduleStart)) {
+      setScheduleError('Horário final deve ser maior que o horário inicial.');
+      return;
+    }
+
+    const overlap = scheduleRows.some((row) =>
+      row.weekday === weekday
+      && toMinutes(scheduleStart) < toMinutes(row.endTime)
+      && toMinutes(scheduleEnd) > toMinutes(row.startTime),
+    );
+
+    if (overlap) {
+      setScheduleError('Este turno se sobrepõe a outro já cadastrado no mesmo dia.');
+      return;
+    }
+
+    setScheduleRows((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        weekday,
+        startTime: scheduleStart,
+        endTime: scheduleEnd,
+      },
+    ].sort((a, b) => (a.weekday - b.weekday) || (a.startTime.localeCompare(b.startTime))));
+    setScheduleError(null);
+  };
+
+  const handleRemoveShift = (id: string) => {
+    setScheduleRows((current) => current.filter((row) => row.id !== id));
+  };
+
+  const handleSaveSchedule = useCallback(async () => {
+    if (!api || !scheduleProfessional) return;
+
+    const intervalMinutes = Math.max(
+      1,
+      Math.round(
+        scheduleIntervalUnit === 'hours'
+          ? (scheduleIntervalValue || 1) * 60
+          : (scheduleIntervalValue || 1),
+      ),
+    );
+
+    setSavingSchedule(true);
+    try {
+      const saved = await api.professionals.schedules.set(
+        scheduleProfessional.id,
+        intervalMinutes,
+        scheduleRows.map((row) => ({
+          weekday: row.weekday,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        })),
+      );
+
+      setScheduleRows(saved.records.map((row) => ({
+        id: row.id,
+        weekday: row.weekday,
+        startTime: row.startTime,
+        endTime: row.endTime,
+      })));
+      const savedInterval = saved.slotIntervalMinutes || 30;
+      if (savedInterval % 60 === 0 && savedInterval >= 60) {
+        setScheduleIntervalValue(savedInterval / 60);
+        setScheduleIntervalUnit('hours');
+      } else {
+        setScheduleIntervalValue(savedInterval);
+        setScheduleIntervalUnit('minutes');
+      }
+      setScheduleError(null);
+      closeSchedule();
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : 'Erro ao salvar agenda do profissional.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  }, [api, closeSchedule, scheduleIntervalUnit, scheduleIntervalValue, scheduleProfessional, scheduleRows]);
+
+  const weeklyColumns = useMemo(() => weekdayOptions.map((day) => ({
+    weekday: Number(day.value),
+    label: day.label,
+    rows: scheduleRows
+      .filter((row) => row.weekday === Number(day.value))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+  })), [scheduleRows]);
+
   return (
     <Stack gap="lg">
       <Card radius="xl" p="lg" withBorder>
@@ -325,6 +482,15 @@ export function ProfessionalsPage() {
                 >
                   Editar
                 </Button>
+                <Button
+                  leftSection={<CalendarDays size={14} />}
+                  onClick={() => void handleOpenSchedule(professional)}
+                  radius="xl"
+                  size="xs"
+                  variant="light"
+                >
+                  Agenda
+                </Button>
               </Stack>
             </Group>
           </Card>
@@ -339,6 +505,108 @@ export function ProfessionalsPage() {
           </Text>
         </Card>
       ) : null}
+
+      <Modal
+        centered
+        onClose={() => {
+          closeSchedule();
+          setScheduleProfessional(null);
+          setScheduleError(null);
+        }}
+        opened={scheduleOpened}
+        radius="xl"
+        size="lg"
+        title={scheduleProfessional ? `Agenda de ${scheduleProfessional.name}` : 'Agenda do profissional'}
+      >
+        <Stack gap="md">
+          <Text c="dimmed" size="sm">
+            Defina os dias e turnos de atendimento. Exemplo: 08:00-10:30 e 13:00-16:00 no mesmo dia.
+          </Text>
+
+          <SimpleGrid cols={{ base: 1, md: 3 }}>
+            <Select
+              data={weekdayOptions}
+              label="Dia da semana"
+              onChange={(value) => setScheduleWeekday(value ?? '1')}
+              value={scheduleWeekday}
+            />
+            <TextInput
+              label="Início"
+              type="time"
+              value={scheduleStart}
+              onChange={(event) => setScheduleStart(event.currentTarget.value)}
+            />
+            <TextInput
+              label="Fim"
+              type="time"
+              value={scheduleEnd}
+              onChange={(event) => setScheduleEnd(event.currentTarget.value)}
+            />
+          </SimpleGrid>
+
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <NumberInput
+              label="Intervalo de agendamento"
+              min={1}
+              onChange={(value) => setScheduleIntervalValue(Number(value) || 1)}
+              value={scheduleIntervalValue}
+            />
+            <Select
+              data={intervalUnitOptions}
+              label="Unidade"
+              onChange={(value) => setScheduleIntervalUnit((value as 'minutes' | 'hours') ?? 'minutes')}
+              value={scheduleIntervalUnit}
+            />
+          </SimpleGrid>
+
+          <Group justify="flex-end">
+            <Button onClick={handleAddShift} radius="xl" variant="light">
+              Adicionar turno
+            </Button>
+          </Group>
+
+          <Divider label="Visão semanal (Seg-Dom)" labelPosition="left" />
+
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 4, lg: 7 }}>
+            {weeklyColumns.map((column) => (
+              <Card key={column.weekday} withBorder radius="lg" p="sm">
+                <Stack gap="xs">
+                  <Text fw={700} size="sm">{column.label}</Text>
+                  {column.rows.length > 0 ? column.rows.map((row) => (
+                    <Group key={row.id} justify="space-between" wrap="nowrap">
+                      <Text size="xs">{row.startTime} - {row.endTime}</Text>
+                      <Button size="compact-xs" radius="xl" variant="subtle" color="red" onClick={() => handleRemoveShift(row.id)}>
+                        x
+                      </Button>
+                    </Group>
+                  )) : <Text c="dimmed" size="xs">Sem turno</Text>}
+                </Stack>
+              </Card>
+            ))}
+          </SimpleGrid>
+
+          {scheduleError ? (
+            <Text c="red" fw={600} size="sm">{scheduleError}</Text>
+          ) : null}
+
+          <Group grow>
+            <Button
+              onClick={() => {
+                closeSchedule();
+                setScheduleProfessional(null);
+                setScheduleError(null);
+              }}
+              radius="xl"
+              variant="light"
+            >
+              Cancelar
+            </Button>
+            <Button loading={savingSchedule} onClick={handleSaveSchedule} radius="xl">
+              Salvar agenda
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         centered

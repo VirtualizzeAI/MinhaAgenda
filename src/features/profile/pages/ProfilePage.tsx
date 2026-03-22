@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Center,
+  Divider,
   Grid,
   Group,
   Loader,
@@ -14,7 +15,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { Building2, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { Building2, Clock, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/features/auth/auth-context';
 import { supabase } from '@/lib/supabase';
 
@@ -30,6 +31,8 @@ interface ProfileForm {
   contact: string;
   whatsapp: string;
   teamSize: number;
+  bookingStartTime: string;
+  bookingEndTime: string;
 }
 
 interface PlanInfo {
@@ -56,6 +59,8 @@ interface TenantProfileRow {
   plan_price: number | null;
   contract_date: string | null;
   due_date: string | null;
+  booking_start_time: string | null;
+  booking_end_time: string | null;
 }
 
 const defaultForm: ProfileForm = {
@@ -70,6 +75,8 @@ const defaultForm: ProfileForm = {
   contact: '',
   whatsapp: '',
   teamSize: 1,
+  bookingStartTime: '08:00',
+  bookingEndTime: '18:00',
 };
 
 const defaultPlanInfo: PlanInfo = {
@@ -128,7 +135,7 @@ export function ProfilePage() {
       const [{ data, error }, adminPlanResult] = await Promise.all([
         supabase
           .from('tenants')
-          .select('id, name, document, street, number, district, city, state, country, contact, whatsapp, team_size')
+          .select('id, name, document, street, number, district, city, state, country, contact, whatsapp, team_size, booking_start_time, booking_end_time')
           .eq('id', tenantId)
           .maybeSingle(),
         supabase
@@ -184,6 +191,8 @@ export function ProfilePage() {
           contact: tenant.contact ?? '',
           whatsapp: tenant.whatsapp ?? '',
           teamSize: tenant.team_size ?? 1,
+          bookingStartTime: tenant.booking_start_time ?? '08:00',
+          bookingEndTime: tenant.booking_end_time ?? '18:00',
         });
       }
 
@@ -247,6 +256,8 @@ export function ProfilePage() {
       contact: form.contact.trim() || null,
       whatsapp: form.whatsapp.trim() || null,
       team_size: form.teamSize,
+      booking_start_time: form.bookingStartTime || '08:00',
+      booking_end_time: form.bookingEndTime || '18:00',
     };
 
     const { error } = await supabase
@@ -452,6 +463,32 @@ export function ProfilePage() {
                 min={1}
                 value={form.teamSize}
                 onChange={(value) => setForm((current) => ({ ...current, teamSize: Number(value) || 1 }))}
+              />
+            </Grid.Col>
+
+            <Grid.Col span={12}>
+              <Divider label={<Group gap={4}><Clock size={13} /> Horário de funcionamento da empresa (padrão)</Group>} labelPosition="left" my="xs" />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 3 }}>
+              <TextInput
+                label="Início do atendimento"
+                type="time"
+                value={form.bookingStartTime}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setForm((current) => ({ ...current, bookingStartTime: value }));
+                }}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 3 }}>
+              <TextInput
+                label="Fim do atendimento"
+                type="time"
+                value={form.bookingEndTime}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setForm((current) => ({ ...current, bookingEndTime: value }));
+                }}
               />
             </Grid.Col>
           </Grid>

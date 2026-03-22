@@ -17,6 +17,8 @@ export interface PublicBookingBootstrap {
   tenant: {
     id: string;
     name: string;
+    bookingStartTime: string;
+    bookingEndTime: string;
   };
   professionals: PublicBookingProfessional[];
   services: PublicBookingService[];

@@ -16,6 +16,19 @@ export interface Professional {
   active?: boolean;
 }
 
+export interface ProfessionalSchedule {
+  id: string;
+  professionalId: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+}
+
+export interface ProfessionalScheduleConfig {
+  slotIntervalMinutes: number;
+  records: ProfessionalSchedule[];
+}
+
 export interface Appointment {
   id: string;
   professionalId: string;

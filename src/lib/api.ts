@@ -9,6 +9,8 @@ import type {
   Order,
   OrderStatus,
   Professional,
+  ProfessionalScheduleConfig,
+  ProfessionalSchedule,
   Service,
   ServiceCategory,
 } from '@/services/api/contracts';
@@ -42,6 +44,19 @@ interface RawProfessional {
   active?: boolean | null;
   tenant_id: string;
   created_at: string;
+}
+
+interface RawProfessionalSchedule {
+  id: string;
+  professional_id: string;
+  weekday: number;
+  start_time: string;
+  end_time: string;
+}
+
+interface RawProfessionalScheduleResponse {
+  slot_interval_minutes: number;
+  records: RawProfessionalSchedule[];
 }
 
 interface RawService {
@@ -138,6 +153,16 @@ function mapProfessional(r: RawProfessional): Professional {
     phone: r.phone ?? undefined,
     commissionRate: r.commission_rate ?? 0,
     active: r.active ?? true,
+  };
+}
+
+function mapProfessionalSchedule(r: RawProfessionalSchedule): ProfessionalSchedule {
+  return {
+    id: r.id,
+    professionalId: r.professional_id,
+    weekday: r.weekday,
+    startTime: r.start_time,
+    endTime: r.end_time,
   };
 }
 
@@ -259,6 +284,43 @@ export function createApiClient(token: string, tenantId: string) {
         return mapProfessional(r);
       },
       remove: (id: string): Promise<void> => req('DELETE', `/v1/professionals/${id}`, token),
+      schedules: {
+        list: async (professionalId: string): Promise<ProfessionalScheduleConfig> => {
+          const res = await req<RawProfessionalScheduleResponse>(
+            'GET',
+            `/v1/professionals/${professionalId}/schedules${tq}`,
+            token,
+          );
+          return {
+            slotIntervalMinutes: res.slot_interval_minutes ?? 30,
+            records: res.records.map(mapProfessionalSchedule),
+          };
+        },
+        set: async (
+          professionalId: string,
+          slotIntervalMinutes: number,
+          schedules: Array<{ weekday: number; startTime: string; endTime: string }>,
+        ): Promise<ProfessionalScheduleConfig> => {
+          const res = await req<RawProfessionalScheduleResponse>(
+            'PUT',
+            `/v1/professionals/${professionalId}/schedules`,
+            token,
+            {
+              tenant_id: tenantId,
+              slot_interval_minutes: slotIntervalMinutes,
+              schedules: schedules.map((slot) => ({
+                weekday: slot.weekday,
+                start_time: slot.startTime,
+                end_time: slot.endTime,
+              })),
+            },
+          );
+          return {
+            slotIntervalMinutes: res.slot_interval_minutes ?? 30,
+            records: res.records.map(mapProfessionalSchedule),
+          };
+        },
+      },
     },
 
     services: {

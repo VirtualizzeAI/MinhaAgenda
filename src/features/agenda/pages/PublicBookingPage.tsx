@@ -145,7 +145,8 @@ export function PublicBookingPage() {
     Boolean(date) &&
     Boolean(time) &&
     clientName.trim().length >= 2 &&
-    clientPhone.replace(/\D/g, '').length >= 10;
+    clientPhone.replace(/\D/g, '').length >= 10 &&
+    clientCpf.replace(/\D/g, '').length === 11;
 
   const hasCatalogData = professionalOptions.length > 0 && serviceOptions.length > 0;
 
@@ -334,6 +335,7 @@ export function PublicBookingPage() {
               label="CPF"
               onChange={(event) => setClientCpf(formatCpf(event.currentTarget.value))}
               placeholder="000.000.000-00"
+              required
               value={clientCpf}
             />
 
