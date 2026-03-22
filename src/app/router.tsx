@@ -12,6 +12,7 @@ const OrdersPage = lazy(() => import('@/features/orders/pages/OrdersPage').then(
 const BillingPage = lazy(() => import('@/features/billing/pages/BillingPage').then((module) => ({ default: module.BillingPage })));
 const ProfessionalsPage = lazy(() => import('@/features/professionals/pages/ProfessionalsPage').then((module) => ({ default: module.ProfessionalsPage })));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
+const ProfilePage = lazy(() => import('@/features/profile/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 
 function RouteFallback() {
   return (
@@ -47,6 +48,7 @@ function ProtectedRoutes() {
           <Route path="/cobrancas" element={<BillingPage />} />
           <Route path="/profissionais" element={<ProfessionalsPage />} />
           <Route path="/relatorios" element={<ReportsPage />} />
+          <Route path="/perfil" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Routes>
       </Suspense>

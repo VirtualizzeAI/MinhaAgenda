@@ -24,6 +24,7 @@ import {
   CreditCard,
   LogOut,
   Menu,
+  Settings2,
   Search,
   Sparkles,
   Users,
@@ -49,6 +50,7 @@ const secondaryItems: NavigationItem[] = [
   { label: 'Cobranças', path: '/cobrancas', icon: Wallet },
   { label: 'Profissionais', path: '/profissionais', icon: CreditCard },
   { label: 'Relatórios', path: '/relatorios', icon: Sparkles },
+  { label: 'Perfil', path: '/perfil', icon: Settings2 },
 ];
 
 function NavigationButton({ item, active, onNavigate }: { item: NavigationItem; active: boolean; onNavigate?: () => void }) {
