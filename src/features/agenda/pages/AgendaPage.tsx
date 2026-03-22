@@ -26,6 +26,7 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react';
 import { Appointment, Client, Professional, Service } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
+import { useAuth } from '@/features/auth/auth-context';
 import { ProfessionalSelector } from '@/features/agenda/components/ProfessionalSelector';
 import { ScheduleTimeline } from '@/features/agenda/components/ScheduleTimeline';
 import { ScheduleGridDesktop } from '@/features/agenda/components/ScheduleGridDesktop';
@@ -105,6 +106,7 @@ function appointmentsForDate(selectedDate: dayjs.Dayjs, filteredAppointments: Ap
 
 export function AgendaPage() {
   const api = useApi();
+  const { tenantId } = useAuth();
   const [appointmentRecords, setAppointmentRecords] = useState<Appointment[]>([]);
   const [professionalRecords, setProfessionalRecords] = useState<Professional[]>([]);
   const [view, setView] = useState<ViewMode>('day');
@@ -119,6 +121,7 @@ export function AgendaPage() {
   );
   const [matchedClient, setMatchedClient] = useState<Client | null>(null);
   const [newClientPhone, setNewClientPhone] = useState('');
+  const [publicBookingMessage, setPublicBookingMessage] = useState<string | null>(null);
   const clientCombobox = useCombobox({ onDropdownClose: () => clientCombobox.resetSelectedOption() });
   const [clientRecords, setClientRecords] = useState<Client[]>([]);
   const [serviceRecords, setServiceRecords] = useState<Service[]>([]);
@@ -221,6 +224,19 @@ export function AgendaPage() {
     setNewClientPhone('');
     setNewAppointmentForm(getInitialAppointmentForm(selectedDate, selectedProfessionalId));
     openCreateModal();
+  };
+
+  const handleCopyPublicBookingLink = async () => {
+    if (!api || !tenantId) return;
+
+    try {
+      const data = await api.bookingLinks.current();
+      const fullLink = `${window.location.origin}${data.urlPath}`;
+      await navigator.clipboard.writeText(fullLink);
+      setPublicBookingMessage('Link de autoagendamento copiado com sucesso.');
+    } catch (err) {
+      setPublicBookingMessage(err instanceof Error ? err.message : 'Não foi possível gerar o link público.');
+    }
   };
 
   const handleCreateAppointment = async () => {
@@ -327,11 +343,21 @@ export function AgendaPage() {
             <Text c="dimmed" maw={680}>
               O fluxo principal prioriza leitura rápida, troca de profissional e encaixes com poucos toques. No desktop, a visualização amplia a densidade para acompanhar várias agendas ao mesmo tempo.
             </Text>
+            {publicBookingMessage ? (
+              <Text c="teal" fw={500} size="sm">
+                {publicBookingMessage}
+              </Text>
+            ) : null}
           </Stack>
 
-          <Button leftSection={<Plus size={16} />} onClick={handleOpenCreateModal} radius="xl" size="md">
-            Novo agendamento
-          </Button>
+          <Group>
+            <Button onClick={handleCopyPublicBookingLink} radius="xl" variant="light">
+              Copiar link de autoagendamento
+            </Button>
+            <Button leftSection={<Plus size={16} />} onClick={handleOpenCreateModal} radius="xl" size="md">
+              Novo agendamento
+            </Button>
+          </Group>
         </Group>
       </Card>
 

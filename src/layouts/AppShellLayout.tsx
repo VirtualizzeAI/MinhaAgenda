@@ -1,8 +1,6 @@
 import { PropsWithChildren } from 'react';
 import {
-  ActionIcon,
   AppShell,
-  Avatar,
   Box,
   Burger,
   Button,
@@ -23,9 +21,7 @@ import {
   ClipboardList,
   CreditCard,
   LogOut,
-  Menu,
   Settings2,
-  Search,
   Sparkles,
   Users,
   Wallet,
@@ -159,7 +155,7 @@ export function AppShellLayout({ children }: PropsWithChildren) {
               </div>
             </Group>
 
-            <Group gap="xs">
+            {/* <Group gap="xs">
               <ActionIcon aria-label="Busca rápida (desativado)" disabled radius="xl" size={42} variant="light">
                 <Search size={18} />
               </ActionIcon>
@@ -169,7 +165,7 @@ export function AppShellLayout({ children }: PropsWithChildren) {
                 </ActionIcon>
               ) : null}
               <Avatar color="teal" radius="xl" style={{ display: 'none' }}>M</Avatar>
-            </Group>
+            </Group> */}
           </Group>
         </AppShell.Header>
 

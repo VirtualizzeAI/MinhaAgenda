@@ -5,6 +5,7 @@ import { useAuth } from '@/features/auth/auth-context';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
+const PublicBookingPage = lazy(() => import('@/features/agenda/pages/PublicBookingPage').then((module) => ({ default: module.PublicBookingPage })));
 const AppShellLayout = lazy(() => import('@/layouts/AppShellLayout').then((module) => ({ default: module.AppShellLayout })));
 const AgendaPage = lazy(() => import('@/features/agenda/pages/AgendaPage').then((module) => ({ default: module.AgendaPage })));
 const ClientsPage = lazy(() => import('@/features/clients/pages/ClientsPage').then((module) => ({ default: module.ClientsPage })));
@@ -73,6 +74,14 @@ export function AppRouter() {
                 <LoginPage />
               </Suspense>
             )
+          }
+        />
+        <Route
+          path="/agendar/:slug"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <PublicBookingPage />
+            </Suspense>
           }
         />
         <Route

@@ -113,6 +113,11 @@ interface RawBillingCharge {
   clients?: { name?: string | null } | Array<{ name?: string | null }> | null;
 }
 
+interface RawBookingLinkResponse {
+  slug: string;
+  urlPath: string;
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 function toShortName(name: string): string {
@@ -409,6 +414,10 @@ export function createApiClient(token: string, tenantId: string) {
         return mapAppointment(r);
       },
       remove: (id: string): Promise<void> => req('DELETE', `/v1/appointments/${id}`, token),
+    },
+
+    bookingLinks: {
+      current: (): Promise<RawBookingLinkResponse> => req('GET', `/v1/booking-links/current${tq}`, token),
     },
 
     orders: {
