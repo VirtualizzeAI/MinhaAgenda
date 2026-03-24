@@ -135,7 +135,7 @@ export function ProfilePage() {
       const [{ data, error }, adminPlanResult] = await Promise.all([
         supabase
           .from('tenants')
-          .select('id, name, document, street, number, district, city, state, country, contact, whatsapp, team_size, booking_start_time, booking_end_time')
+          .select('id, name, document, street, number, district, city, state, country, contact, whatsapp, team_size, booking_start_time, booking_end_time, plan, plan_price, contract_date, due_date')
           .eq('id', tenantId)
           .maybeSingle(),
         supabase
@@ -178,6 +178,8 @@ export function ProfilePage() {
       }
 
       const tenant = data as TenantProfileRow | null;
+      let tenantHasPlanInfo = false;
+
       if (tenant) {
         setForm({
           businessName: tenant.name ?? '',
@@ -194,13 +196,25 @@ export function ProfilePage() {
           bookingStartTime: tenant.booking_start_time ?? '08:00',
           bookingEndTime: tenant.booking_end_time ?? '18:00',
         });
+
+        const tenantPlanInfo: PlanInfo = {
+          planName: tenant.plan ?? '',
+          planPrice: tenant.plan_price ?? '',
+          contractDate: formatDateInput(tenant.contract_date),
+          dueDate: formatDateInput(tenant.due_date),
+        };
+
+        if (tenant.plan || tenant.plan_price || tenant.contract_date || tenant.due_date) {
+          tenantHasPlanInfo = true;
+          setPlanInfo(tenantPlanInfo);
+        }
       }
 
       if (adminPlanResult.error) {
         if (!errorMessage) {
           setErrorMessage(adminPlanResult.error.message);
         }
-      } else if (adminPlanResult.data) {
+      } else if (!tenantHasPlanInfo && adminPlanResult.data) {
         const relation = getPlanRelationValue((adminPlanResult.data as AdminCustomerPlanRow).admin_plans);
         setPlanInfo({
           planName: relation?.name ?? '',
@@ -208,7 +222,7 @@ export function ProfilePage() {
           contractDate: formatDateInput((adminPlanResult.data as AdminCustomerPlanRow).created_at),
           dueDate: formatDateInput((adminPlanResult.data as AdminCustomerPlanRow).due_date),
         });
-      } else {
+      } else if (!tenantHasPlanInfo) {
         setPlanInfo(defaultPlanInfo);
       }
 
@@ -566,7 +580,6 @@ export function ProfilePage() {
               <TextInput
                 label="Novo e-mail"
                 type="email"
-                value={newEmail}
                 onChange={(event) => setNewEmail(event.currentTarget.value)}
               />
               <Button radius="xl" variant="light" onClick={() => void onUpdateEmail()}>
