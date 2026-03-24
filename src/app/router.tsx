@@ -15,6 +15,7 @@ const BillingPage = lazy(() => import('@/features/billing/pages/BillingPage').th
 const ProfessionalsPage = lazy(() => import('@/features/professionals/pages/ProfessionalsPage').then((module) => ({ default: module.ProfessionalsPage })));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const ProfilePage = lazy(() => import('@/features/profile/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const WhatsappPage = lazy(() => import('@/features/whatsapp/pages/WhatsappPage').then((module) => ({ default: module.WhatsappPage })));
 
 function RouteFallback() {
   return (
@@ -50,6 +51,7 @@ function ProtectedRoutes() {
           <Route path="/cobrancas" element={<BillingPage />} />
           <Route path="/profissionais" element={<ProfessionalsPage />} />
           <Route path="/relatorios" element={<ReportsPage />} />
+          <Route path="/whatsapp" element={<WhatsappPage />} />
           <Route path="/perfil" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Routes>

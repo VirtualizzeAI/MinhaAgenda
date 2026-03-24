@@ -21,6 +21,7 @@ import {
   ClipboardList,
   CreditCard,
   LogOut,
+  MessageCircle,
   Settings2,
   Sparkles,
   Users,
@@ -46,6 +47,7 @@ const secondaryItems: NavigationItem[] = [
   { label: 'Cobranças', path: '/cobrancas', icon: Wallet },
   { label: 'Profissionais', path: '/profissionais', icon: CreditCard },
   { label: 'Relatórios', path: '/relatorios', icon: Sparkles },
+  { label: 'WhatsApp', path: '/whatsapp', icon: MessageCircle },
   { label: 'Perfil', path: '/perfil', icon: Settings2 },
 ];
 

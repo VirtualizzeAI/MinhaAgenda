@@ -102,6 +102,8 @@ export function ProfessionalsPage() {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleIntervalValue, setScheduleIntervalValue] = useState<number>(30);
   const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<'minutes' | 'hours'>('minutes');
+  const [scheduleMinNoticeValue, setScheduleMinNoticeValue] = useState<number>(0);
+  const [scheduleMinNoticeUnit, setScheduleMinNoticeUnit] = useState<'minutes' | 'hours'>('minutes');
 
   useEffect(() => {
     if (!api) return;
@@ -268,11 +270,23 @@ export function ProfessionalsPage() {
         setScheduleIntervalValue(intervalMinutes);
         setScheduleIntervalUnit('minutes');
       }
+
+      const minNoticeMinutes = existing.minBookingNoticeMinutes || 0;
+      if (minNoticeMinutes > 0 && minNoticeMinutes % 60 === 0) {
+        setScheduleMinNoticeValue(minNoticeMinutes / 60);
+        setScheduleMinNoticeUnit('hours');
+      } else {
+        setScheduleMinNoticeValue(minNoticeMinutes);
+        setScheduleMinNoticeUnit('minutes');
+      }
+
       setScheduleRows(mapped);
       openSchedule();
     } catch (err) {
       setScheduleError(err instanceof Error ? err.message : 'Erro ao carregar agenda do profissional.');
       setScheduleRows([]);
+      setScheduleMinNoticeValue(0);
+      setScheduleMinNoticeUnit('minutes');
       openSchedule();
     }
   }, [api, openSchedule]);
@@ -323,11 +337,21 @@ export function ProfessionalsPage() {
       ),
     );
 
+    const minBookingNoticeMinutes = Math.max(
+      0,
+      Math.round(
+        scheduleMinNoticeUnit === 'hours'
+          ? (scheduleMinNoticeValue || 0) * 60
+          : (scheduleMinNoticeValue || 0),
+      ),
+    );
+
     setSavingSchedule(true);
     try {
       const saved = await api.professionals.schedules.set(
         scheduleProfessional.id,
         intervalMinutes,
+        minBookingNoticeMinutes,
         scheduleRows.map((row) => ({
           weekday: row.weekday,
           startTime: row.startTime,
@@ -349,6 +373,16 @@ export function ProfessionalsPage() {
         setScheduleIntervalValue(savedInterval);
         setScheduleIntervalUnit('minutes');
       }
+
+      const savedMinNotice = saved.minBookingNoticeMinutes || 0;
+      if (savedMinNotice > 0 && savedMinNotice % 60 === 0) {
+        setScheduleMinNoticeValue(savedMinNotice / 60);
+        setScheduleMinNoticeUnit('hours');
+      } else {
+        setScheduleMinNoticeValue(savedMinNotice);
+        setScheduleMinNoticeUnit('minutes');
+      }
+
       setScheduleError(null);
       closeSchedule();
     } catch (err) {
@@ -356,7 +390,16 @@ export function ProfessionalsPage() {
     } finally {
       setSavingSchedule(false);
     }
-  }, [api, closeSchedule, scheduleIntervalUnit, scheduleIntervalValue, scheduleProfessional, scheduleRows]);
+  }, [
+    api,
+    closeSchedule,
+    scheduleIntervalUnit,
+    scheduleIntervalValue,
+    scheduleMinNoticeUnit,
+    scheduleMinNoticeValue,
+    scheduleProfessional,
+    scheduleRows,
+  ]);
 
   const weeklyColumns = useMemo(() => weekdayOptions.map((day) => ({
     weekday: Number(day.value),
@@ -556,6 +599,21 @@ export function ProfessionalsPage() {
               label="Unidade"
               onChange={(value) => setScheduleIntervalUnit((value as 'minutes' | 'hours') ?? 'minutes')}
               value={scheduleIntervalUnit}
+            />
+          </SimpleGrid>
+
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <NumberInput
+              label="Antecedência mínima para agendamento"
+              min={0}
+              onChange={(value) => setScheduleMinNoticeValue(Number(value) || 0)}
+              value={scheduleMinNoticeValue}
+            />
+            <Select
+              data={intervalUnitOptions}
+              label="Unidade da antecedência"
+              onChange={(value) => setScheduleMinNoticeUnit((value as 'minutes' | 'hours') ?? 'minutes')}
+              value={scheduleMinNoticeUnit}
             />
           </SimpleGrid>
 

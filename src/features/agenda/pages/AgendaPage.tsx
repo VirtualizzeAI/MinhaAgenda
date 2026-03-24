@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Combobox,
   Divider,
   Grid,
@@ -95,6 +96,15 @@ interface ScheduleDraft {
   endTime: string;
 }
 
+type ScheduleConfigMode = 'standard' | 'per-day';
+
+interface ScheduleSummary {
+  dayCount: number;
+  periodCount: number;
+  slotIntervalMinutes: number;
+  minBookingNoticeMinutes: number;
+}
+
 const weekdayOptions = [
   { value: '1', label: 'Segunda' },
   { value: '2', label: 'Terca' },
@@ -108,6 +118,30 @@ const weekdayOptions = [
 function toMinutes(value: string): number {
   const [h, m] = value.split(':');
   return Number(h) * 60 + Number(m);
+}
+
+function sortWeekdays(values: string[]): string[] {
+  const order = weekdayOptions.map((item) => item.value);
+  return Array.from(new Set(values)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+
+function detectScheduleConfigMode(rows: ScheduleDraft[]): ScheduleConfigMode {
+  if (rows.length === 0) return 'standard';
+
+  const grouped = new Map<number, string[]>();
+  rows.forEach((row) => {
+    const current = grouped.get(row.weekday) ?? [];
+    current.push(`${row.startTime}-${row.endTime}`);
+    grouped.set(row.weekday, current);
+  });
+
+  const signatures = Array.from(grouped.values()).map((slots) => slots.sort().join('|'));
+  return new Set(signatures).size <= 1 ? 'standard' : 'per-day';
+}
+
+function extractSelectedWeekdays(rows: ScheduleDraft[]): string[] {
+  const values = rows.map((row) => String(row.weekday));
+  return sortWeekdays(values);
 }
 
 function getInitialAppointmentForm(selectedDate: dayjs.Dayjs, selectedProfessionalId = ''): NewAppointmentForm {
@@ -138,6 +172,7 @@ export function AgendaPage() {
   const [selectedProfessionalId, setSelectedProfessionalId] = useState('');
   const [createOpened, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
   const [createScheduleOpened, { open: openCreateScheduleModal, close: closeCreateScheduleModal }] = useDisclosure(false);
+  const [manageSchedulesOpened, { open: openManageSchedulesModal, close: closeManageSchedulesModal }] = useDisclosure(false);
   const [detailsOpened, { open: openDetailsModal, close: closeDetailsModal }] = useDisclosure(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
@@ -151,11 +186,18 @@ export function AgendaPage() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleProfessionalId, setScheduleProfessionalId] = useState('');
   const [scheduleRows, setScheduleRows] = useState<ScheduleDraft[]>([]);
+  const [scheduleConfigMode, setScheduleConfigMode] = useState<ScheduleConfigMode>('standard');
+  const [scheduleSelectedWeekdays, setScheduleSelectedWeekdays] = useState<string[]>(['1']);
   const [scheduleWeekday, setScheduleWeekday] = useState('1');
   const [scheduleStartTime, setScheduleStartTime] = useState('08:00');
   const [scheduleEndTime, setScheduleEndTime] = useState('10:30');
   const [scheduleIntervalValue, setScheduleIntervalValue] = useState<number>(30);
   const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<'minutes' | 'hours'>('minutes');
+  const [scheduleMinNoticeValue, setScheduleMinNoticeValue] = useState<number>(0);
+  const [scheduleMinNoticeUnit, setScheduleMinNoticeUnit] = useState<'minutes' | 'hours'>('minutes');
+  const [scheduleSummaries, setScheduleSummaries] = useState<Record<string, ScheduleSummary>>({});
+  const [scheduleSummariesLoading, setScheduleSummariesLoading] = useState(false);
+  const [manageSchedulesError, setManageSchedulesError] = useState<string | null>(null);
   const clientCombobox = useCombobox({ onDropdownClose: () => clientCombobox.resetSelectedOption() });
   const [clientRecords, setClientRecords] = useState<Client[]>([]);
   const [serviceRecords, setServiceRecords] = useState<Service[]>([]);
@@ -260,6 +302,25 @@ export function AgendaPage() {
       .sort((a, b) => a.startTime.localeCompare(b.startTime)),
   })), [scheduleRows]);
 
+  const scheduleRowsEditor = useMemo(() => {
+    if (scheduleConfigMode === 'standard') {
+      const baseWeekday = scheduleSelectedWeekdays[0];
+      if (!baseWeekday) return [];
+      return scheduleRows
+        .filter((row) => row.weekday === Number(baseWeekday))
+        .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    }
+
+    return scheduleRows
+      .filter((row) => row.weekday === Number(scheduleWeekday))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  }, [scheduleConfigMode, scheduleRows, scheduleSelectedWeekdays, scheduleWeekday]);
+
+  const availableWeekdayOptions = useMemo(
+    () => weekdayOptions.filter((option) => scheduleSelectedWeekdays.includes(option.value)),
+    [scheduleSelectedWeekdays],
+  );
+
   const handleOpenCreateModal = () => {
     setFormError(null);
     setMatchedClient(null);
@@ -281,23 +342,33 @@ export function AgendaPage() {
     }
   };
 
-  const handleOpenCreateScheduleModal = async () => {
+  const handleOpenCreateScheduleModal = async (professionalIdFromAction?: string) => {
     if (!api) return;
-    const professionalId = selectedProfessionalId || professionalRecords[0]?.id || '';
+    const professionalId = professionalIdFromAction || selectedProfessionalId || professionalRecords[0]?.id || '';
     setScheduleProfessionalId(professionalId);
     setScheduleRows([]);
+    setScheduleConfigMode('standard');
+    setScheduleSelectedWeekdays(['1']);
+    setScheduleWeekday('1');
     setScheduleError(null);
     setScheduleSaving(false);
 
     if (professionalId) {
       try {
         const existing = await api.professionals.schedules.list(professionalId);
-        setScheduleRows(existing.records.map((slot) => ({
+        const loadedRows = existing.records.map((slot) => ({
           id: slot.id,
           weekday: slot.weekday,
           startTime: slot.startTime,
           endTime: slot.endTime,
-        })));
+        }));
+        const loadedWeekdays = extractSelectedWeekdays(loadedRows);
+
+        setScheduleRows(loadedRows);
+        setScheduleSelectedWeekdays(loadedWeekdays.length > 0 ? loadedWeekdays : ['1']);
+        setScheduleWeekday(loadedWeekdays[0] ?? '1');
+        setScheduleConfigMode(detectScheduleConfigMode(loadedRows));
+
         const minutes = existing.slotIntervalMinutes || 30;
         if (minutes % 60 === 0 && minutes >= 60) {
           setScheduleIntervalValue(minutes / 60);
@@ -306,12 +377,49 @@ export function AgendaPage() {
           setScheduleIntervalValue(minutes);
           setScheduleIntervalUnit('minutes');
         }
+
+        const minNoticeMinutes = existing.minBookingNoticeMinutes || 0;
+        if (minNoticeMinutes > 0 && minNoticeMinutes % 60 === 0) {
+          setScheduleMinNoticeValue(minNoticeMinutes / 60);
+          setScheduleMinNoticeUnit('hours');
+        } else {
+          setScheduleMinNoticeValue(minNoticeMinutes);
+          setScheduleMinNoticeUnit('minutes');
+        }
       } catch (err) {
         setScheduleError(err instanceof Error ? err.message : 'Erro ao carregar agenda do profissional.');
       }
     }
 
     openCreateScheduleModal();
+  };
+
+  const handleOpenManageSchedulesModal = async () => {
+    if (!api) return;
+    setManageSchedulesError(null);
+    setScheduleSummariesLoading(true);
+    openManageSchedulesModal();
+
+    try {
+      const entries = await Promise.all(
+        professionalRecords.map(async (professional) => {
+          const config = await api.professionals.schedules.list(professional.id);
+          const dayCount = new Set(config.records.map((row) => row.weekday)).size;
+          return [professional.id, {
+            dayCount,
+            periodCount: config.records.length,
+            slotIntervalMinutes: config.slotIntervalMinutes,
+            minBookingNoticeMinutes: config.minBookingNoticeMinutes,
+          } as ScheduleSummary] as const;
+        }),
+      );
+
+      setScheduleSummaries(Object.fromEntries(entries));
+    } catch (err) {
+      setManageSchedulesError(err instanceof Error ? err.message : 'Erro ao carregar agendas existentes.');
+    } finally {
+      setScheduleSummariesLoading(false);
+    }
   };
 
   const handleChangeScheduleProfessional = async (value: string) => {
@@ -322,12 +430,19 @@ export function AgendaPage() {
 
     try {
       const existing = await api.professionals.schedules.list(value);
-      setScheduleRows(existing.records.map((slot) => ({
+      const loadedRows = existing.records.map((slot) => ({
         id: slot.id,
         weekday: slot.weekday,
         startTime: slot.startTime,
         endTime: slot.endTime,
-      })));
+      }));
+      const loadedWeekdays = extractSelectedWeekdays(loadedRows);
+
+      setScheduleRows(loadedRows);
+      setScheduleSelectedWeekdays(loadedWeekdays.length > 0 ? loadedWeekdays : ['1']);
+      setScheduleWeekday(loadedWeekdays[0] ?? '1');
+      setScheduleConfigMode(detectScheduleConfigMode(loadedRows));
+
       const minutes = existing.slotIntervalMinutes || 30;
       if (minutes % 60 === 0 && minutes >= 60) {
         setScheduleIntervalValue(minutes / 60);
@@ -336,42 +451,137 @@ export function AgendaPage() {
         setScheduleIntervalValue(minutes);
         setScheduleIntervalUnit('minutes');
       }
+
+      const minNoticeMinutes = existing.minBookingNoticeMinutes || 0;
+      if (minNoticeMinutes > 0 && minNoticeMinutes % 60 === 0) {
+        setScheduleMinNoticeValue(minNoticeMinutes / 60);
+        setScheduleMinNoticeUnit('hours');
+      } else {
+        setScheduleMinNoticeValue(minNoticeMinutes);
+        setScheduleMinNoticeUnit('minutes');
+      }
     } catch (err) {
       setScheduleError(err instanceof Error ? err.message : 'Erro ao carregar agenda do profissional.');
     }
   };
 
+  const handleToggleScheduleWeekday = (weekdayValue: string, checked: boolean) => {
+    const weekdayNumber = Number(weekdayValue);
+
+    if (checked) {
+      const nextWeekdays = sortWeekdays([...scheduleSelectedWeekdays, weekdayValue]);
+      setScheduleSelectedWeekdays(nextWeekdays);
+      if (!nextWeekdays.includes(scheduleWeekday)) {
+        setScheduleWeekday(weekdayValue);
+      }
+
+      if (scheduleConfigMode === 'standard') {
+        const templateWeekday = Number(scheduleSelectedWeekdays[0] ?? weekdayValue);
+        const templateRows = scheduleRows.filter((row) => row.weekday === templateWeekday);
+        if (templateRows.length > 0) {
+          setScheduleRows((current) => [
+            ...current.filter((row) => row.weekday !== weekdayNumber),
+            ...templateRows.map((row) => ({
+              id: crypto.randomUUID(),
+              weekday: weekdayNumber,
+              startTime: row.startTime,
+              endTime: row.endTime,
+            })),
+          ]);
+        }
+      }
+
+      return;
+    }
+
+    const nextWeekdays = sortWeekdays(scheduleSelectedWeekdays.filter((value) => value !== weekdayValue));
+    setScheduleSelectedWeekdays(nextWeekdays);
+    setScheduleRows((current) => current.filter((row) => row.weekday !== weekdayNumber));
+
+    if (scheduleWeekday === weekdayValue) {
+      setScheduleWeekday(nextWeekdays[0] ?? '1');
+    }
+  };
+
+  const handleChangeScheduleConfigMode = (mode: ScheduleConfigMode) => {
+    setScheduleConfigMode(mode);
+
+    if (mode === 'standard') {
+      const selected = scheduleSelectedWeekdays.length > 0 ? scheduleSelectedWeekdays : ['1'];
+      const baseWeekday = Number(scheduleWeekday || selected[0]);
+      const templateRows = scheduleRows
+        .filter((row) => row.weekday === baseWeekday)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+      const nextRows: ScheduleDraft[] = [];
+      selected.forEach((weekdayValue) => {
+        const weekdayNumber = Number(weekdayValue);
+        templateRows.forEach((row) => {
+          nextRows.push({
+            id: crypto.randomUUID(),
+            weekday: weekdayNumber,
+            startTime: row.startTime,
+            endTime: row.endTime,
+          });
+        });
+      });
+
+      setScheduleRows(nextRows);
+    }
+  };
+
   const handleAddScheduleShift = () => {
-    const weekday = Number(scheduleWeekday);
+    if (scheduleSelectedWeekdays.length === 0) {
+      setScheduleError('Selecione ao menos um dia de atendimento.');
+      return;
+    }
+
     if (toMinutes(scheduleEndTime) <= toMinutes(scheduleStartTime)) {
       setScheduleError('Horario final deve ser maior que o inicial.');
       return;
     }
 
-    const overlap = scheduleRows.some((row) =>
-      row.weekday === weekday
-      && toMinutes(scheduleStartTime) < toMinutes(row.endTime)
-      && toMinutes(scheduleEndTime) > toMinutes(row.startTime),
-    );
+    const targetWeekdays = scheduleConfigMode === 'standard'
+      ? scheduleSelectedWeekdays.map(Number)
+      : [Number(scheduleWeekday)];
 
-    if (overlap) {
-      setScheduleError('Este turno se sobrepoe a outro no mesmo dia.');
+    const hasOverlap = targetWeekdays.some((weekday) =>
+      scheduleRows.some((row) =>
+        row.weekday === weekday
+        && toMinutes(scheduleStartTime) < toMinutes(row.endTime)
+        && toMinutes(scheduleEndTime) > toMinutes(row.startTime),
+      ));
+
+    if (hasOverlap) {
+      setScheduleError('Este periodo se sobrepoe a outro no mesmo dia.');
       return;
     }
 
     setScheduleRows((current) => [
       ...current,
-      {
+      ...targetWeekdays.map((weekday) => ({
         id: crypto.randomUUID(),
         weekday,
         startTime: scheduleStartTime,
         endTime: scheduleEndTime,
-      },
+      })),
     ].sort((a, b) => (a.weekday - b.weekday) || a.startTime.localeCompare(b.startTime)));
     setScheduleError(null);
   };
 
   const handleRemoveScheduleShift = (id: string) => {
+    if (scheduleConfigMode === 'standard') {
+      const reference = scheduleRows.find((row) => row.id === id);
+      if (!reference) return;
+
+      setScheduleRows((current) => current.filter((row) => !(
+        scheduleSelectedWeekdays.includes(String(row.weekday))
+        && row.startTime === reference.startTime
+        && row.endTime === reference.endTime
+      )));
+      return;
+    }
+
     setScheduleRows((current) => current.filter((item) => item.id !== id));
   };
 
@@ -387,11 +597,21 @@ export function AgendaPage() {
       ),
     );
 
+    const minBookingNoticeMinutes = Math.max(
+      0,
+      Math.round(
+        scheduleMinNoticeUnit === 'hours'
+          ? (scheduleMinNoticeValue || 0) * 60
+          : (scheduleMinNoticeValue || 0),
+      ),
+    );
+
     setScheduleSaving(true);
     try {
       await api.professionals.schedules.set(
         scheduleProfessionalId,
         intervalMinutes,
+        minBookingNoticeMinutes,
         scheduleRows.map((row) => ({
           weekday: row.weekday,
           startTime: row.startTime,
@@ -520,8 +740,11 @@ export function AgendaPage() {
           </Stack>
 
           <Group>
+            <Button onClick={() => void handleOpenManageSchedulesModal()} radius="xl" variant="light">
+              Listar agendas
+            </Button>
             <Button onClick={() => void handleOpenCreateScheduleModal()} radius="xl" variant="light">
-              Criar agendas
+              Nova agenda
             </Button>
             <Button onClick={handleCopyPublicBookingLink} radius="xl" variant="light">
               Copiar link de autoagendamento
@@ -716,52 +939,179 @@ export function AgendaPage() {
       <Modal
         centered
         onClose={() => {
+          closeManageSchedulesModal();
+          setManageSchedulesError(null);
+        }}
+        opened={manageSchedulesOpened}
+        radius="xl"
+        size="lg"
+        title="Agendas existentes"
+      >
+        <Stack gap="md">
+          <Text c="dimmed" size="sm">
+            Selecione uma agenda para editar disponibilidade, intervalo e antecedencia minima.
+          </Text>
+
+          {manageSchedulesError ? (
+            <Text c="red" fw={600} size="sm">{manageSchedulesError}</Text>
+          ) : null}
+
+          <Stack gap="sm">
+            {professionalRecords.map((professional) => {
+              const summary = scheduleSummaries[professional.id];
+
+              return (
+                <Card key={professional.id} p="md" radius="lg" withBorder>
+                  <Group justify="space-between" align="center">
+                    <Stack gap={2}>
+                      <Text fw={700}>{professional.name}</Text>
+                      <Text c="dimmed" size="sm">{professional.specialty}</Text>
+                      {summary ? (
+                        <Text c="dimmed" size="xs">
+                          {summary.dayCount} dias ativos • {summary.periodCount} periodos • intervalo {summary.slotIntervalMinutes} min • antecedencia {summary.minBookingNoticeMinutes} min
+                        </Text>
+                      ) : (
+                        <Text c="dimmed" size="xs">{scheduleSummariesLoading ? 'Carregando agenda...' : 'Sem agenda cadastrada'}</Text>
+                      )}
+                    </Stack>
+
+                    <Button
+                      onClick={() => {
+                        closeManageSchedulesModal();
+                        void handleOpenCreateScheduleModal(professional.id);
+                      }}
+                      radius="xl"
+                      variant="light"
+                    >
+                      Gerenciar
+                    </Button>
+                  </Group>
+                </Card>
+              );
+            })}
+          </Stack>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => {
           closeCreateScheduleModal();
           setScheduleError(null);
         }}
         opened={createScheduleOpened}
         radius="xl"
-        size="lg"
-        title="Criar agenda do profissional"
+        size="xl"
+        title="Configurar agenda do profissional"
       >
         <Stack gap="md">
           <Text c="dimmed" size="sm">
-            Selecione o profissional e configure os dias, turnos e intervalo entre horarios.
+            Organize dias de atendimento e periodos com controle de intervalo e antecedencia minima.
           </Text>
 
-          <Select
-            data={professionalRecords.map((professional) => ({
-              value: professional.id,
-              label: `${professional.name} - ${professional.specialty}`,
-            }))}
-            label="Profissional"
-            onChange={(value) => {
-              if (!value) return;
-              void handleChangeScheduleProfessional(value);
-            }}
-            value={scheduleProfessionalId}
-          />
+          <Card p="md" radius="lg" withBorder>
+            <Stack gap="sm">
+              <Select
+                data={professionalRecords.map((professional) => ({
+                  value: professional.id,
+                  label: `${professional.name} - ${professional.specialty}`,
+                }))}
+                label="Profissional"
+                onChange={(value) => {
+                  if (!value) return;
+                  void handleChangeScheduleProfessional(value);
+                }}
+                value={scheduleProfessionalId}
+              />
 
-          <SimpleGrid cols={{ base: 1, md: 3 }}>
-            <Select
-              data={weekdayOptions}
-              label="Dia da semana"
-              onChange={(value) => setScheduleWeekday(value ?? '1')}
-              value={scheduleWeekday}
-            />
-            <TextInput
-              label="Inicio"
-              type="time"
-              value={scheduleStartTime}
-              onChange={(event) => setScheduleStartTime(event.currentTarget.value)}
-            />
-            <TextInput
-              label="Fim"
-              type="time"
-              value={scheduleEndTime}
-              onChange={(event) => setScheduleEndTime(event.currentTarget.value)}
-            />
-          </SimpleGrid>
+              <Text fw={700} size="sm">Dias de atendimento</Text>
+              <SimpleGrid cols={{ base: 2, sm: 4 }}>
+                {weekdayOptions.map((day) => (
+                  <Checkbox
+                    key={day.value}
+                    checked={scheduleSelectedWeekdays.includes(day.value)}
+                    label={day.label}
+                    onChange={(event) => handleToggleScheduleWeekday(day.value, event.currentTarget.checked)}
+                  />
+                ))}
+              </SimpleGrid>
+            </Stack>
+          </Card>
+
+          <Card p="md" radius="lg" withBorder>
+            <Stack gap="sm">
+              <Text fw={700} size="sm">Configuracao de horarios</Text>
+              <SegmentedControl
+                data={[
+                  { label: 'Horarios padrao (igual para todos os dias)', value: 'standard' },
+                  { label: 'Horarios personalizados (por dia)', value: 'per-day' },
+                ]}
+                onChange={(value) => handleChangeScheduleConfigMode(value as ScheduleConfigMode)}
+                value={scheduleConfigMode}
+              />
+
+              {scheduleConfigMode === 'per-day' ? (
+                <Select
+                  data={availableWeekdayOptions}
+                  label="Dia para editar"
+                  onChange={(value) => setScheduleWeekday(value ?? scheduleWeekday)}
+                  value={scheduleWeekday}
+                />
+              ) : null}
+            </Stack>
+          </Card>
+
+          <Card p="md" radius="lg" withBorder>
+            <Stack gap="sm">
+              <Text fw={700} size="sm">Periodos de atendimento</Text>
+
+              <SimpleGrid cols={{ base: 1, md: 2 }}>
+                <TextInput
+                  label="Inicio"
+                  type="time"
+                  value={scheduleStartTime}
+                  onChange={(event) => setScheduleStartTime(event.currentTarget.value)}
+                />
+                <TextInput
+                  label="Fim"
+                  type="time"
+                  value={scheduleEndTime}
+                  onChange={(event) => setScheduleEndTime(event.currentTarget.value)}
+                />
+              </SimpleGrid>
+
+              <Group justify="space-between">
+                <Text c="dimmed" size="xs">
+                  {scheduleConfigMode === 'standard'
+                    ? 'Os periodos abaixo serao aplicados para todos os dias marcados.'
+                    : 'Adicione periodos especificos para o dia selecionado.'}
+                </Text>
+                <Button onClick={handleAddScheduleShift} radius="xl" variant="light">
+                  + Adicionar periodo
+                </Button>
+              </Group>
+
+              <Stack gap="xs">
+                {scheduleRowsEditor.length > 0 ? scheduleRowsEditor.map((row, index) => (
+                  <Card key={row.id} bg="rgba(10,20,32,0.03)" p="sm" radius="md" withBorder>
+                    <Group justify="space-between" wrap="nowrap">
+                      <Text fw={700} size="sm">Periodo {index + 1}</Text>
+                      <Group gap="xs" wrap="nowrap">
+                        <Text size="sm">{row.startTime}</Text>
+                        <Text c="dimmed" size="sm">as</Text>
+                        <Text size="sm">{row.endTime}</Text>
+                        <Button size="compact-xs" radius="xl" variant="subtle" color="red" onClick={() => handleRemoveScheduleShift(row.id)}>
+                          x
+                        </Button>
+                      </Group>
+                    </Group>
+                  </Card>
+                )) : (
+                  <Text c="dimmed" size="sm">Nenhum periodo configurado.</Text>
+                )}
+              </Stack>
+            </Stack>
+          </Card>
 
           <SimpleGrid cols={{ base: 1, md: 2 }}>
             <NumberInput
@@ -781,11 +1131,23 @@ export function AgendaPage() {
             />
           </SimpleGrid>
 
-          <Group justify="flex-end">
-            <Button onClick={handleAddScheduleShift} radius="xl" variant="light">
-              Adicionar turno
-            </Button>
-          </Group>
+          <SimpleGrid cols={{ base: 1, md: 2 }}>
+            <NumberInput
+              label="Antecedencia minima para agendamento"
+              min={0}
+              value={scheduleMinNoticeValue}
+              onChange={(value) => setScheduleMinNoticeValue(Number(value) || 0)}
+            />
+            <Select
+              label="Unidade da antecedencia"
+              data={[
+                { value: 'minutes', label: 'Minutos' },
+                { value: 'hours', label: 'Horas' },
+              ]}
+              value={scheduleMinNoticeUnit}
+              onChange={(value) => setScheduleMinNoticeUnit((value as 'minutes' | 'hours') ?? 'minutes')}
+            />
+          </SimpleGrid>
 
           <Divider label="Visao semanal (Seg-Dom)" labelPosition="left" />
 

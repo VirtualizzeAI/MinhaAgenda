@@ -26,6 +26,7 @@ export interface ProfessionalSchedule {
 
 export interface ProfessionalScheduleConfig {
   slotIntervalMinutes: number;
+  minBookingNoticeMinutes: number;
   records: ProfessionalSchedule[];
 }
 

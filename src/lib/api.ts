@@ -56,6 +56,7 @@ interface RawProfessionalSchedule {
 
 interface RawProfessionalScheduleResponse {
   slot_interval_minutes: number;
+  min_booking_notice_minutes?: number;
   records: RawProfessionalSchedule[];
 }
 
@@ -293,12 +294,14 @@ export function createApiClient(token: string, tenantId: string) {
           );
           return {
             slotIntervalMinutes: res.slot_interval_minutes ?? 30,
+            minBookingNoticeMinutes: res.min_booking_notice_minutes ?? 0,
             records: res.records.map(mapProfessionalSchedule),
           };
         },
         set: async (
           professionalId: string,
           slotIntervalMinutes: number,
+          minBookingNoticeMinutes: number,
           schedules: Array<{ weekday: number; startTime: string; endTime: string }>,
         ): Promise<ProfessionalScheduleConfig> => {
           const res = await req<RawProfessionalScheduleResponse>(
@@ -308,6 +311,7 @@ export function createApiClient(token: string, tenantId: string) {
             {
               tenant_id: tenantId,
               slot_interval_minutes: slotIntervalMinutes,
+              min_booking_notice_minutes: minBookingNoticeMinutes,
               schedules: schedules.map((slot) => ({
                 weekday: slot.weekday,
                 start_time: slot.startTime,
@@ -317,6 +321,7 @@ export function createApiClient(token: string, tenantId: string) {
           );
           return {
             slotIntervalMinutes: res.slot_interval_minutes ?? 30,
+            minBookingNoticeMinutes: res.min_booking_notice_minutes ?? 0,
             records: res.records.map(mapProfessionalSchedule),
           };
         },
