@@ -13,18 +13,21 @@ import type {
   ProfessionalSchedule,
   Service,
   ServiceCategory,
+  TenantSettings,
 } from '@/services/api/contracts';
 
 const BASE = import.meta.env.VITE_API_URL as string;
 
 async function req<T>(method: string, path: string, token: string, body?: unknown): Promise<T> {
+  const hasBody = body !== undefined;
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       Authorization: `Bearer ${token}`,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return undefined as T;
   const json = await res.json() as Record<string, unknown>;
@@ -132,6 +135,11 @@ interface RawBillingCharge {
 interface RawBookingLinkResponse {
   slug: string;
   urlPath: string;
+}
+
+interface RawTenantSettings {
+  service_categories: string[];
+  appointment_statuses: string[];
 }
 
 // ── Mappers ───────────────────────────────────────────────────────────────────
@@ -242,12 +250,33 @@ function mapBillingCharge(r: RawBillingCharge): BillingCharge {
   };
 }
 
+function mapTenantSettings(r: RawTenantSettings): TenantSettings {
+  return {
+    serviceCategories: r.service_categories ?? [],
+    appointmentStatuses: r.appointment_statuses ?? [],
+  };
+}
+
 // ── Client factory ────────────────────────────────────────────────────────────
 
 export function createApiClient(token: string, tenantId: string) {
   const tq = `?tenantId=${tenantId}`;
 
   return {
+    tenantSettings: {
+      get: async (): Promise<TenantSettings> => {
+        const res = await req<RawTenantSettings>('GET', `/v1/tenant-settings${tq}`, token);
+        return mapTenantSettings(res);
+      },
+      update: async (data: Partial<{ serviceCategories: string[]; appointmentStatuses: string[] }>): Promise<TenantSettings> => {
+        const res = await req<RawTenantSettings>('PUT', `/v1/tenant-settings${tq}`, token, {
+          ...(data.serviceCategories !== undefined && { service_categories: data.serviceCategories }),
+          ...(data.appointmentStatuses !== undefined && { appointment_statuses: data.appointmentStatuses }),
+        });
+        return mapTenantSettings(res);
+      },
+    },
+
     professionals: {
       list: async (): Promise<Professional[]> => {
         const res = await req<{ records: RawProfessional[] }>('GET', `/v1/professionals${tq}`, token);
@@ -404,13 +433,14 @@ export function createApiClient(token: string, tenantId: string) {
       },
       update: async (
         id: string,
-        data: Partial<{ name: string; phone: string; email: string; cpf: string; notes: string; tags: ClientTag[] }>,
+        data: Partial<{ name: string; phone: string; email: string; cpf: string; birthDate: string; notes: string; tags: ClientTag[] }>,
       ): Promise<Client> => {
         const r = await req<RawClient>('PUT', `/v1/clients/${id}`, token, {
           ...(data.name != null && { name: data.name }),
           ...(data.phone != null && { phone: data.phone }),
           ...(data.email !== undefined && { email: data.email || null }),
           ...(data.cpf !== undefined && { cpf: data.cpf || null }),
+          ...(data.birthDate !== undefined && { birth_date: data.birthDate || null }),
           ...(data.notes !== undefined && { notes: data.notes || null }),
           ...(data.tags !== undefined && { tags: data.tags }),
         });

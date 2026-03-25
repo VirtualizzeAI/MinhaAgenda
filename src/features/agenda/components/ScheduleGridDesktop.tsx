@@ -10,6 +10,16 @@ const statusLabel: Record<Appointment['status'], string> = {
   available: 'Bloqueio',
 };
 
+function formatStatusLabel(value: string): string {
+  if (statusLabel[value]) return statusLabel[value];
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 interface ScheduleGridDesktopProps {
   professionals: Professional[];
   appointments: Appointment[];
@@ -66,7 +76,7 @@ export function ScheduleGridDesktop({ professionals, appointments, onAppointment
                           <Text fw={700}>{appointment.clientName}</Text>
                         </div>
                         <Badge color="teal" radius="xl" variant="light">
-                          {statusLabel[appointment.status]}
+                          {formatStatusLabel(appointment.status)}
                         </Badge>
                       </Group>
                       <Text mt="xs" size="sm">

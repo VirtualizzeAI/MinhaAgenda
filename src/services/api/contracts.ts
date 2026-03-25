@@ -1,4 +1,4 @@
-export type AppointmentStatus = 'confirmed' | 'in-progress' | 'attention' | 'available';
+export type AppointmentStatus = string;
 
 export interface UserSession {
   name: string;
@@ -58,12 +58,7 @@ export interface Client {
   notes?: string;
 }
 
-export type ServiceCategory =
-  | 'podologia'
-  | 'estetica'
-  | 'unhas'
-  | 'terapia'
-  | 'pacote';
+export type ServiceCategory = string;
 
 export interface Service {
   id: string;
@@ -73,6 +68,11 @@ export interface Service {
   price: number;
   active: boolean;
   description?: string;
+}
+
+export interface TenantSettings {
+  serviceCategories: string[];
+  appointmentStatuses: string[];
 }
 
 export type OrderStatus = 'open' | 'closed' | 'canceled';

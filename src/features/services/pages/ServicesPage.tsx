@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ActionIcon,
   Badge,
   Button,
   Card,
   Group,
   Modal,
   NumberInput,
-  SegmentedControl,
   Select,
   SimpleGrid,
   Stack,
@@ -17,23 +17,26 @@ import {
   Title,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Plus, Search } from 'lucide-react';
-import { Service, ServiceCategory } from '@/services/api/contracts';
+import { Check, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Service } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 
-type ServiceFilter = 'all' | ServiceCategory | 'inactive';
+type ServiceFilter = 'all' | 'inactive' | string;
 
-const categoryLabel: Record<ServiceCategory, string> = {
-  podologia: 'Podologia',
-  estetica: 'Estética',
-  unhas: 'Unhas',
-  terapia: 'Terapia',
-  pacote: 'Pacote',
-};
+const defaultCategories = ['podologia', 'estetica', 'unhas', 'terapia', 'pacote'];
+
+function formatCategoryLabel(value: string): string {
+  if (!value) return 'Sem categoria';
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
 
 interface NewServiceForm {
   name: string;
-  category: ServiceCategory;
+  category: string;
   durationMinutes: number;
   price: number;
   active: boolean;
@@ -52,17 +55,37 @@ const initialForm: NewServiceForm = {
 export function ServicesPage() {
   const api = useApi();
   const [records, setRecords] = useState<Service[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(defaultCategories);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ServiceFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
+  const [categoriesOpened, { open: openCategoriesModal, close: closeCategoriesModal }] = useDisclosure(false);
   const [form, setForm] = useState<NewServiceForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [newCategoryInput, setNewCategoryInput] = useState('');
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [editingCategoryKey, setEditingCategoryKey] = useState<string | null>(null);
+  const [editingCategoryLabel, setEditingCategoryLabel] = useState('');
 
   useEffect(() => {
     if (!api) return;
     api.services.list().then(setRecords).catch(console.error);
+    api.tenantSettings.get()
+      .then((settings) => {
+        const merged = Array.from(new Set([...settings.serviceCategories, ...defaultCategories]));
+        setCategoryOptions(merged.length > 0 ? merged : defaultCategories);
+      })
+      .catch(console.error);
   }, [api]);
+
+  useEffect(() => {
+    if (records.length === 0) return;
+    setCategoryOptions((current) => {
+      const merged = Array.from(new Set([...current, ...records.map((service) => service.category)]));
+      return merged;
+    });
+  }, [records]);
 
   const filteredServices = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -91,9 +114,15 @@ export function ServicesPage() {
 
   const handleSaveService = async () => {
     const name = form.name.trim();
+    const category = form.category.trim();
 
     if (!name) {
       setFormError('Informe o nome do serviço.');
+      return;
+    }
+
+    if (!category) {
+      setFormError('Informe a categoria do serviço.');
       return;
     }
 
@@ -111,7 +140,7 @@ export function ServicesPage() {
       try {
         const updated = await api!.services.update(editingServiceId, {
           name,
-          category: form.category,
+          category,
           durationMinutes: form.durationMinutes,
           price: form.price,
           active: form.active,
@@ -126,7 +155,7 @@ export function ServicesPage() {
       try {
         const created = await api!.services.create({
           name,
-          category: form.category,
+          category,
           durationMinutes: form.durationMinutes,
           price: form.price,
           active: form.active,
@@ -140,9 +169,62 @@ export function ServicesPage() {
     }
 
     setEditingServiceId(null);
+    setCategoryOptions((current) => (current.includes(category) ? current : [...current, category]));
     setForm(initialForm);
     setFormError(null);
     close();
+  };
+
+  const handleCreateCategory = async () => {
+    const value = newCategoryInput.trim();
+    if (!value) {
+      setCategoryError('Digite um nome para a categoria.');
+      return;
+    }
+
+    const exists = categoryOptions.some((item) => item.toLowerCase() === value.toLowerCase());
+    if (exists) {
+      setCategoryError('Essa categoria já existe.');
+      return;
+    }
+
+    const next = [...categoryOptions, value];
+    setCategoryOptions(next);
+    setForm((current) => ({ ...current, category: value }));
+
+    if (api) {
+      try {
+        await api.tenantSettings.update({ serviceCategories: next });
+      } catch (err) {
+        setCategoryError(err instanceof Error ? err.message : 'Erro ao salvar categoria.');
+        return;
+      }
+    }
+
+    setNewCategoryInput('');
+    setCategoryError(null);
+  };
+
+  const handleRemoveCategory = (category: string) => {
+    const next = categoryOptions.filter((item) => item !== category);
+    if (next.length === 0) return;
+    setCategoryOptions(next);
+    if (filter === category) setFilter('all');
+    if (api) {
+      api.tenantSettings.update({ serviceCategories: next }).catch(console.error);
+    }
+  };
+
+  const handleSaveRenameCategory = (oldValue: string) => {
+    const newValue = editingCategoryLabel.trim();
+    setEditingCategoryKey(null);
+    if (!newValue || newValue === oldValue) return;
+    const next = categoryOptions.map((item) => (item === oldValue ? newValue : item));
+    setCategoryOptions(next);
+    if (filter === oldValue) setFilter(newValue);
+    if (api) {
+      api.tenantSettings.update({ serviceCategories: next }).catch(console.error);
+    }
   };
 
   const handleEditService = (service: Service) => {
@@ -186,6 +268,9 @@ export function ServicesPage() {
           >
             Novo serviço
           </Button>
+          <Button onClick={openCategoriesModal} radius="xl" variant="light">
+            Gerenciar categorias
+          </Button>
         </Group>
       </Card>
 
@@ -226,14 +311,18 @@ export function ServicesPage() {
             value={query}
           />
 
-          <SegmentedControl
+          <Select
             data={[
               { label: 'Todos', value: 'all' },
-              { label: 'Podologia', value: 'podologia' },
-              { label: 'Estética', value: 'estetica' },
               { label: 'Inativos', value: 'inactive' },
+              ...categoryOptions.map((category) => ({
+                label: formatCategoryLabel(category),
+                value: category,
+              })),
             ]}
-            onChange={(value) => setFilter(value as ServiceFilter)}
+            label="Filtrar por categoria"
+            onChange={(value) => setFilter((value as ServiceFilter) ?? 'all')}
+            radius="xl"
             value={filter}
           />
         </Stack>
@@ -246,7 +335,7 @@ export function ServicesPage() {
               <div>
                 <Text fw={800}>{service.name}</Text>
                 <Text c="dimmed" size="sm">
-                  {categoryLabel[service.category]} • {service.durationMinutes} min
+                  {formatCategoryLabel(service.category)} • {service.durationMinutes} min
                 </Text>
                 {service.description ? (
                   <Text c="dimmed" mt={6} size="sm">
@@ -307,14 +396,14 @@ export function ServicesPage() {
           />
 
           <Select
-            data={Object.entries(categoryLabel).map(([value, label]) => ({ value, label }))}
+            data={categoryOptions.map((category) => ({ value: category, label: formatCategoryLabel(category) }))}
             label="Categoria"
             onChange={(value) => {
               if (!value) {
                 return;
               }
 
-              setForm((current) => ({ ...current, category: value as ServiceCategory }));
+              setForm((current) => ({ ...current, category: value }));
             }}
             radius="xl"
             value={form.category}
@@ -390,6 +479,81 @@ export function ServicesPage() {
               {editingServiceId ? 'Salvar alterações' : 'Salvar serviço'}
             </Button>
           </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => {
+          closeCategoriesModal();
+          setCategoryError(null);
+          setNewCategoryInput('');
+        }}
+        opened={categoriesOpened}
+        radius="xl"
+        title="Categorias personalizadas"
+      >
+        <Stack gap="md">
+          <TextInput
+            label="Nova categoria"
+            onChange={(event) => setNewCategoryInput(event.currentTarget.value)}
+            placeholder="Ex: Laser, Massagem, Sobrancelha"
+            radius="xl"
+            value={newCategoryInput}
+          />
+
+          <Button onClick={handleCreateCategory} radius="xl">
+            Adicionar categoria
+          </Button>
+
+          {categoryError ? (
+            <Text c="red" fw={600} size="sm">
+              {categoryError}
+            </Text>
+          ) : null}
+
+          <Stack gap="xs">
+            {categoryOptions.map((category) =>
+              editingCategoryKey === category ? (
+                <Group key={category} gap="xs">
+                  <TextInput
+                    flex={1}
+                    value={editingCategoryLabel}
+                    onChange={(e) => setEditingCategoryLabel(e.currentTarget.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRenameCategory(category); }}
+                    radius="xl"
+                    size="sm"
+                  />
+                  <ActionIcon color="teal" onClick={() => handleSaveRenameCategory(category)} radius="xl" variant="light">
+                    <Check size={14} />
+                  </ActionIcon>
+                  <ActionIcon onClick={() => setEditingCategoryKey(null)} radius="xl" variant="subtle">
+                    <X size={14} />
+                  </ActionIcon>
+                </Group>
+              ) : (
+                <Group key={category} align="center" justify="space-between">
+                  <Text fw={600} size="sm">{formatCategoryLabel(category)}</Text>
+                  <Group gap="xs">
+                    <ActionIcon
+                      onClick={() => { setEditingCategoryKey(category); setEditingCategoryLabel(category); }}
+                      radius="xl" size="sm" title="Renomear" variant="subtle"
+                    >
+                      <Pencil size={12} />
+                    </ActionIcon>
+                    <ActionIcon
+                      color="red"
+                      disabled={categoryOptions.length <= 1}
+                      onClick={() => handleRemoveCategory(category)}
+                      radius="xl" size="sm" title="Remover" variant="subtle"
+                    >
+                      <Trash2 size={12} />
+                    </ActionIcon>
+                  </Group>
+                </Group>
+              )
+            )}
+          </Stack>
         </Stack>
       </Modal>
     </Stack>

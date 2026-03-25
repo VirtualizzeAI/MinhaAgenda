@@ -26,7 +26,7 @@ import {
   useCombobox,
 } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
-import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { Appointment, Client, Professional, Service } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 import { useAuth } from '@/features/auth/auth-context';
@@ -70,12 +70,26 @@ const statusOptions = [
   { value: 'available', label: 'Bloqueio' },
 ] as const;
 
-const statusLabels: Record<Appointment['status'], string> = {
-  confirmed: 'Confirmado',
-  'in-progress': 'Em atendimento',
-  attention: 'Atenção',
-  available: 'Bloqueio',
-};
+function formatStatusLabel(value: string): string {
+  const known: Record<string, string> = {
+    confirmed: 'Confirmado',
+    'in-progress': 'Em atendimento',
+    attention: 'Atenção',
+    available: 'Bloqueio',
+  };
+
+  return known[value]
+    ?? value
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+}
+
+function isBlockedStatus(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return normalized === 'available' || normalized.includes('bloqueio') || normalized.includes('block');
+}
 
 interface NewAppointmentForm {
   date: string;
@@ -201,6 +215,12 @@ export function AgendaPage() {
   const clientCombobox = useCombobox({ onDropdownClose: () => clientCombobox.resetSelectedOption() });
   const [clientRecords, setClientRecords] = useState<Client[]>([]);
   const [serviceRecords, setServiceRecords] = useState<Service[]>([]);
+  const [appointmentStatusOptions, setAppointmentStatusOptions] = useState<string[]>(statusOptions.map((item) => item.value));
+  const [statusManagementOpened, { open: openStatusManagementModal, close: closeStatusManagementModal }] = useDisclosure(false);
+  const [newStatusInput, setNewStatusInput] = useState('');
+  const [statusManagementError, setStatusManagementError] = useState<string | null>(null);
+  const [editingStatusKey, setEditingStatusKey] = useState<string | null>(null);
+  const [editingStatusLabel, setEditingStatusLabel] = useState('');
   const isDesktop = useMediaQuery('(min-width: 75em)');
 
   useEffect(() => {
@@ -213,7 +233,22 @@ export function AgendaPage() {
     api.appointments.list().then(setAppointmentRecords).catch(console.error);
     api.clients.list().then(setClientRecords).catch(console.error);
     api.services.list().then(setServiceRecords).catch(console.error);
+    api.tenantSettings.get()
+      .then((settings) => {
+        if (settings.appointmentStatuses.length > 0) {
+          setAppointmentStatusOptions(settings.appointmentStatuses);
+        }
+      })
+      .catch(console.error);
   }, [api]);
+
+  useEffect(() => {
+    if (appointmentRecords.length === 0) return;
+    setAppointmentStatusOptions((current) => Array.from(new Set([
+      ...current,
+      ...appointmentRecords.map((appointment) => appointment.status),
+    ])));
+  }, [appointmentRecords]);
 
   const agendaWeek = useMemo(
     () => Array.from({ length: 7 }, (_, i) => selectedDate.startOf('week').add(i, 'day')),
@@ -272,7 +307,7 @@ export function AgendaPage() {
 
   const occupancy = useMemo(() => {
     const confirmedCount = dailyAppointments.filter((appointment) => appointment.status === 'confirmed').length;
-    const blockedCount = dailyAppointments.filter((appointment) => appointment.status === 'available').length;
+    const blockedCount = dailyAppointments.filter((appointment) => isBlockedStatus(appointment.status)).length;
 
     return {
       confirmedCount,
@@ -718,6 +753,46 @@ export function AgendaPage() {
     }
   };
 
+  const handleCreateStatus = async () => {
+    const value = newStatusInput.trim();
+    if (!value) {
+      setStatusManagementError('Digite um nome para o status.');
+      return;
+    }
+    const exists = appointmentStatusOptions.some((item) => item.toLowerCase() === value.toLowerCase());
+    if (exists) {
+      setStatusManagementError('Esse status já existe.');
+      return;
+    }
+    const next = [...appointmentStatusOptions, value];
+    setAppointmentStatusOptions(next);
+    setNewStatusInput('');
+    setStatusManagementError(null);
+    if (api) {
+      api.tenantSettings.update({ appointmentStatuses: next }).catch(console.error);
+    }
+  };
+
+  const handleRemoveStatus = (status: string) => {
+    const next = appointmentStatusOptions.filter((item) => item !== status);
+    setAppointmentStatusOptions(next.length > 0 ? next : appointmentStatusOptions);
+    if (next.length === 0) return;
+    if (api) {
+      api.tenantSettings.update({ appointmentStatuses: next }).catch(console.error);
+    }
+  };
+
+  const handleSaveRenameStatus = (oldValue: string) => {
+    const newValue = editingStatusLabel.trim();
+    setEditingStatusKey(null);
+    if (!newValue || newValue === oldValue) return;
+    const next = appointmentStatusOptions.map((item) => (item === oldValue ? newValue : item));
+    setAppointmentStatusOptions(next);
+    if (api) {
+      api.tenantSettings.update({ appointmentStatuses: next }).catch(console.error);
+    }
+  };
+
   return (
     <Stack gap="lg">
       <Card radius="xl" padding="lg" shadow="sm" withBorder>
@@ -742,6 +817,9 @@ export function AgendaPage() {
           <Group>
             <Button onClick={() => void handleOpenManageSchedulesModal()} radius="xl" variant="light">
               Listar agendas
+            </Button>
+            <Button onClick={openStatusManagementModal} radius="xl" variant="light">
+              Gerenciar status
             </Button>
             <Button onClick={() => void handleOpenCreateScheduleModal()} radius="xl" variant="light">
               Nova agenda
@@ -1357,12 +1435,10 @@ export function AgendaPage() {
               value={newAppointmentForm.room}
             />
             <Select
-              data={[
-                { value: 'confirmed', label: 'Confirmado' },
-                { value: 'in-progress', label: 'Em atendimento' },
-                { value: 'attention', label: 'Atenção' },
-                { value: 'available', label: 'Bloqueio' },
-              ]}
+              data={appointmentStatusOptions.map((status) => ({
+                value: status,
+                label: formatStatusLabel(status),
+              }))}
               label="Status"
               onChange={(value) => {
                 if (!value) {
@@ -1454,9 +1530,9 @@ export function AgendaPage() {
             </Card>
 
             <Select
-              data={statusOptions.map((option) => ({
-                value: option.value,
-                label: option.label,
+              data={appointmentStatusOptions.map((status) => ({
+                value: status,
+                label: formatStatusLabel(status),
               }))}
               label="Status"
               onChange={(value) => {
@@ -1500,7 +1576,7 @@ export function AgendaPage() {
             </Group>
 
             <Text c="dimmed" size="xs" ta="center">
-              Status atual: {statusLabels[selectedAppointment.status]}
+              Status atual: {formatStatusLabel(selectedAppointment.status)}
             </Text>
           </Stack>
         ) : (
@@ -1508,6 +1584,85 @@ export function AgendaPage() {
             Agendamento não encontrado.
           </Text>
         )}
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => {
+          closeStatusManagementModal();
+          setStatusManagementError(null);
+          setNewStatusInput('');
+          setEditingStatusKey(null);
+        }}
+        opened={statusManagementOpened}
+        radius="xl"
+        title="Status dos agendamentos"
+      >
+        <Stack gap="md">
+          <Group gap="xs">
+            <TextInput
+              flex={1}
+              label="Novo status"
+              onChange={(event) => setNewStatusInput(event.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateStatus(); }}
+              placeholder="Ex: Aguardando, Cancelado, Finalizado"
+              radius="xl"
+              value={newStatusInput}
+            />
+            <Button mt={24} onClick={() => void handleCreateStatus()} radius="xl">
+              Adicionar
+            </Button>
+          </Group>
+
+          {statusManagementError ? (
+            <Text c="red" fw={600} size="sm">
+              {statusManagementError}
+            </Text>
+          ) : null}
+
+          <Stack gap="xs">
+            {appointmentStatusOptions.map((status) =>
+              editingStatusKey === status ? (
+                <Group key={status} gap="xs">
+                  <TextInput
+                    flex={1}
+                    value={editingStatusLabel}
+                    onChange={(e) => setEditingStatusLabel(e.currentTarget.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRenameStatus(status); }}
+                    radius="xl"
+                    size="sm"
+                  />
+                  <ActionIcon color="teal" onClick={() => handleSaveRenameStatus(status)} radius="xl" variant="light">
+                    <Check size={14} />
+                  </ActionIcon>
+                  <ActionIcon onClick={() => setEditingStatusKey(null)} radius="xl" variant="subtle">
+                    <X size={14} />
+                  </ActionIcon>
+                </Group>
+              ) : (
+                <Group key={status} align="center" justify="space-between">
+                  <Text fw={600} size="sm">{formatStatusLabel(status)}</Text>
+                  <Group gap="xs">
+                    <ActionIcon
+                      onClick={() => { setEditingStatusKey(status); setEditingStatusLabel(status); }}
+                      radius="xl" size="sm" title="Renomear" variant="subtle"
+                    >
+                      <Pencil size={12} />
+                    </ActionIcon>
+                    <ActionIcon
+                      color="red"
+                      disabled={appointmentStatusOptions.length <= 1}
+                      onClick={() => handleRemoveStatus(status)}
+                      radius="xl" size="sm" title="Remover" variant="subtle"
+                    >
+                      <Trash2 size={12} />
+                    </ActionIcon>
+                  </Group>
+                </Group>
+              )
+            )}
+          </Stack>
+        </Stack>
       </Modal>
     </Stack>
   );

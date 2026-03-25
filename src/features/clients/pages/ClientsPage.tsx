@@ -23,6 +23,24 @@ import { CalendarPlus, Search, UserPlus, Users } from 'lucide-react';
 import { AppointmentStatus, Client, ClientTag, Professional } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 
+const defaultAppointmentStatuses = ['confirmed', 'in-progress', 'attention', 'available'];
+
+function formatStatusLabel(value: string): string {
+  const known: Record<string, string> = {
+    confirmed: 'Confirmado',
+    'in-progress': 'Em atendimento',
+    attention: 'Atenção',
+    available: 'Bloqueio',
+  };
+
+  return known[value]
+    ?? value
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+      .join(' ');
+}
+
 interface NewAppointmentForm {
   date: string;
   startTime: string;
@@ -118,11 +136,32 @@ export function ClientsPage() {
   const [scheduleOpened, { open: openScheduleModal, close: closeScheduleModal }] = useDisclosure(false);
   const [scheduleForm, setScheduleForm] = useState<NewAppointmentForm | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [appointmentStatusOptions, setAppointmentStatusOptions] = useState<string[]>(defaultAppointmentStatuses);
 
   useEffect(() => {
     if (!api) return;
     api.clients.list().then(setClientRecords).catch(console.error);
     api.professionals.list().then(setProfessionalRecords).catch(console.error);
+    api.tenantSettings.get()
+      .then((settings) => {
+        if (settings.appointmentStatuses.length > 0) {
+          setAppointmentStatusOptions(settings.appointmentStatuses);
+        }
+      })
+      .catch(console.error);
+  }, [api]);
+
+  useEffect(() => {
+    if (!api) return;
+    api.appointments.list()
+      .then((appointments) => {
+        setAppointmentStatusOptions((current) => Array.from(new Set([
+          ...current,
+          ...appointments.map((appointment) => appointment.status),
+        ])));
+      })
+      .catch(console.error);
   }, [api]);
 
   const filteredClients = useMemo(() => {
@@ -214,7 +253,7 @@ export function ClientsPage() {
     closeScheduleModal();
   };
 
-  const handleCreateClient = async () => {
+  const handleSaveClient = async () => {
     const name = form.name.trim();
     const cpfDigits = normalizeCpf(form.cpf);
     const phoneDigits = form.phone.replace(/\D/g, '');
@@ -235,30 +274,60 @@ export function ClientsPage() {
       return;
     }
 
-    if (clientRecords.some((client) => normalizeCpf(client.cpf) === cpfDigits)) {
+    if (clientRecords.some((client) => normalizeCpf(client.cpf) === cpfDigits && client.id !== editingClientId)) {
       setFormError('Já existe cliente cadastrado com este CPF.');
       return;
     }
 
     if (!api) return;
     try {
-      const created = await api.clients.create({
-        name,
-        cpf: formatCpf(cpfDigits),
-        phone: formatPhone(form.phone),
-        email,
-        tags: ['new'],
-        birthDate: form.birthDate || undefined,
-        notes: form.notes.trim() || undefined,
-      });
-      setClientRecords((current) => [created, ...current]);
+      if (editingClientId) {
+        const source = clientRecords.find((client) => client.id === editingClientId);
+        const updated = await api.clients.update(editingClientId, {
+          name,
+          cpf: formatCpf(cpfDigits),
+          phone: formatPhone(form.phone),
+          email,
+          birthDate: form.birthDate || '',
+          notes: form.notes.trim(),
+          tags: source?.tags ?? ['new'],
+        });
+        setClientRecords((current) => current.map((client) => (client.id === editingClientId ? updated : client)));
+        setSelectedClient((current) => (current?.id === editingClientId ? updated : current));
+      } else {
+        const created = await api.clients.create({
+          name,
+          cpf: formatCpf(cpfDigits),
+          phone: formatPhone(form.phone),
+          email,
+          tags: ['new'],
+          birthDate: form.birthDate || undefined,
+          notes: form.notes.trim() || undefined,
+        });
+        setClientRecords((current) => [created, ...current]);
+      }
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Erro ao cadastrar cliente.');
+      setFormError(err instanceof Error ? err.message : 'Erro ao salvar cliente.');
       return;
     }
     setForm(initialForm);
+    setEditingClientId(null);
     setFormError(null);
     closeCreateModal();
+  };
+
+  const handleEditClient = (client: Client) => {
+    setEditingClientId(client.id);
+    setForm({
+      name: client.name,
+      cpf: client.cpf,
+      phone: client.phone,
+      email: client.email,
+      birthDate: client.birthDate ?? '',
+      notes: client.notes ?? '',
+    });
+    setFormError(null);
+    openCreateModal();
   };
 
   return (
@@ -281,6 +350,7 @@ export function ClientsPage() {
             <Button
               leftSection={<UserPlus size={16} />}
               onClick={() => {
+                setEditingClientId(null);
                 setForm(initialForm);
                 setFormError(null);
                 openCreateModal();
@@ -454,6 +524,9 @@ export function ClientsPage() {
                   </Badge>
                 ))}
               </Group>
+              <Button mt="md" onClick={() => handleEditClient(selectedClient)} radius="xl" variant="light">
+                Editar cliente
+              </Button>
             </Card>
 
             {selectedClient.notes ? (
@@ -472,12 +545,13 @@ export function ClientsPage() {
         centered
         onClose={() => {
           closeCreateModal();
+          setEditingClientId(null);
           setForm(initialForm);
           setFormError(null);
         }}
         opened={createOpened}
         radius="xl"
-        title="Cadastrar novo cliente"
+        title={editingClientId ? 'Editar cliente' : 'Cadastrar novo cliente'}
       >
         <Stack gap="md">
           <TextInput
@@ -566,6 +640,7 @@ export function ClientsPage() {
             <Button
               onClick={() => {
                 closeCreateModal();
+                setEditingClientId(null);
                 setFormError(null);
               }}
               radius="xl"
@@ -573,8 +648,8 @@ export function ClientsPage() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleCreateClient} radius="xl">
-              Salvar cliente
+            <Button onClick={handleSaveClient} radius="xl">
+              {editingClientId ? 'Salvar alterações' : 'Salvar cliente'}
             </Button>
           </Group>
         </Stack>
@@ -671,12 +746,10 @@ export function ClientsPage() {
                 value={scheduleForm.room}
               />
               <Select
-                data={[
-                  { value: 'confirmed', label: 'Confirmado' },
-                  { value: 'in-progress', label: 'Em atendimento' },
-                  { value: 'attention', label: 'Atenção' },
-                  { value: 'available', label: 'Bloqueio' },
-                ]}
+                data={appointmentStatusOptions.map((status) => ({
+                  value: status,
+                  label: formatStatusLabel(status),
+                }))}
                 label="Status"
                 onChange={(value) => {
                   if (!value) return;

@@ -249,13 +249,13 @@ export function WhatsappPage() {
         <Group justify="space-between" align="flex-start">
           <div>
             <Badge color="teal" radius="xl" variant="light">
-              Automacoes e lembretes
+              Mensagens Automaticas
             </Badge>
             <Title mt="xs" order={2}>
-              WhatsApp (Evolution API)
+              WhatsApp
             </Title>
             <Text c="dimmed" mt="xs">
-              Informe seu numero, conecte a instancia e personalize a mensagem de confirmacao enviada em novos agendamentos.
+              Conecte seu número e personalize a mensagem de confirmação enviada em novos agendamentos.
             </Text>
           </div>
         </Group>
@@ -269,11 +269,11 @@ export function WhatsappPage() {
         <Stack gap="md">
           <Group gap="xs">
             <MessageCircle size={18} />
-            <Title order={4}>Conexao do numero</Title>
+            <Title order={4}>Conexão do número</Title>
           </Group>
 
           <Switch
-            label="Enviar confirmacao automatica para novos agendamentos"
+            label="Enviar confirmação automática para novos agendamentos"
             checked={config.enabled}
             onChange={(event) => {
               const checked = event.currentTarget.checked;
@@ -282,7 +282,7 @@ export function WhatsappPage() {
           />
 
           <TextInput
-            label="Numero do WhatsApp (DDD + numero, sem 55)"
+            label="Número do WhatsApp (DDD + número)"
             placeholder="Ex.: 84986176356"
             value={config.connectedNumber}
             onChange={(event) => {
@@ -291,17 +291,13 @@ export function WhatsappPage() {
             }}
           />
 
-          <Text size="sm" c="dimmed">
-            O sistema adiciona o DDI 55 internamente. Informe apenas DDD + numero.
-          </Text>
-
           <Group>
             <Button radius="xl" variant="light" loading={connecting} onClick={() => void onConnect()}>
               Conectar
             </Button>
           </Group>
 
-          <Alert color={connected ? 'teal' : 'yellow'} title="Status do numero">
+          <Alert color={connected ? 'teal' : 'yellow'} title="Status do número">
             {connected
               ? `Conectado: ${formattedConnectedNumber}`
               : `Desconectado: ${formattedConnectedNumber}`}
@@ -331,7 +327,11 @@ export function WhatsappPage() {
 
       <Card radius="xl" p="lg" withBorder>
         <Stack gap="md">
-          <Title order={4}>Mensagem de confirmacao</Title>
+          <Title order={4}>Mensagem de confirmação</Title>
+
+          {/* <Text size="sm" c="dimmed">
+            Variaveis disponiveis: {'{{cliente_nome}}'}, {'{{servico}}'}, {'{{profissional_nome}}'}, {'{{data}}'}, {'{{hora_inicio}}'}, {'{{hora_fim}}'}, {'{{empresa}}'}, {'{{telefone_empresa}}'}
+          </Text> */}
 
           <Textarea
             label="Template da mensagem"

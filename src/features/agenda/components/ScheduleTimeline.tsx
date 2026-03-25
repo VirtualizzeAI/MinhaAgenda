@@ -9,6 +9,17 @@ const statusMap: Record<Appointment['status'], { color: string; label: string }>
   available: { color: 'gray', label: 'Bloqueio' },
 };
 
+function formatStatusLabel(value: string): string {
+  const known = statusMap[value];
+  if (known) return known.label;
+
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
 interface ScheduleTimelineProps {
   appointments: Appointment[];
   onAppointmentClick?: (appointment: Appointment) => void;
@@ -29,7 +40,7 @@ export function ScheduleTimeline({ appointments, onAppointmentClick }: ScheduleT
   return (
     <Timeline active={appointments.length} bulletSize={22} lineWidth={2} color="teal">
       {appointments.map((appointment) => {
-        const status = statusMap[appointment.status];
+        const status = statusMap[appointment.status] ?? { color: 'blue', label: formatStatusLabel(appointment.status) };
 
         return (
           <Timeline.Item key={appointment.id} title={`${dayjs(appointment.start).format('HH:mm')} - ${dayjs(appointment.end).format('HH:mm')}`}>

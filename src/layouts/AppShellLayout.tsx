@@ -18,7 +18,6 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   BriefcaseBusiness,
   CalendarDays,
-  ClipboardList,
   CreditCard,
   LogOut,
   MessageCircle,
@@ -40,7 +39,7 @@ const primaryItems: NavigationItem[] = [
   { label: 'Agenda', path: '/agenda', icon: CalendarDays },
   { label: 'Clientes', path: '/clientes', icon: Users },
   { label: 'Serviços', path: '/servicos', icon: BriefcaseBusiness },
-  { label: 'Comandas', path: '/comandas', icon: ClipboardList },
+  { label: 'Relatórios', path: '/relatorios', icon: Sparkles },
 ];
 
 const secondaryItems: NavigationItem[] = [
