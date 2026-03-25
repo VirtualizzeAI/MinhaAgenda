@@ -67,26 +67,6 @@ export function WhatsappPage() {
     return digits || 'Nao informado';
   }, [config.connectedNumber]);
 
-  const parseQrPayload = (value: unknown): string | null => {
-    if (!value) return null;
-    if (typeof value === 'string') return value;
-    if (typeof value !== 'object') return null;
-
-    const objectValue = value as Record<string, unknown>;
-    const direct = objectValue.qr ?? objectValue.code ?? objectValue.qrcode;
-    if (typeof direct === 'string') return direct;
-
-    const nestedData = objectValue.data;
-    if (typeof nestedData === 'string') return nestedData;
-    if (nestedData && typeof nestedData === 'object') {
-      const nested = nestedData as Record<string, unknown>;
-      const nestedQr = nested.qr ?? nested.code ?? nested.qrcode;
-      if (typeof nestedQr === 'string') return nestedQr;
-    }
-
-    return null;
-  };
-
   const fetchSessionStatus = async () => {
     const response = await fetch(withTenantQuery('/v1/whatsapp/session/status'), {
       headers: {
@@ -204,7 +184,7 @@ export function WhatsappPage() {
   };
 
   const callSessionAction = async (
-    path: '/v1/whatsapp/session/connect' | '/v1/whatsapp/session/status' | '/v1/whatsapp/session/qr' | '/v1/whatsapp/session/sync',
+    path: '/v1/whatsapp/session/connect' | '/v1/whatsapp/session/status' | '/v1/whatsapp/session/sync',
     method: 'GET' | 'POST',
     body?: Record<string, unknown>,
   ) => {
@@ -238,18 +218,12 @@ export function WhatsappPage() {
       const json = await callSessionAction('/v1/whatsapp/session/connect', 'POST', {
         connectedNumber: config.connectedNumber,
       });
-      const parsedQr = parseQrPayload(json.qr ?? json);
-
-      if (!parsedQr) {
-        const qrJson = await callSessionAction('/v1/whatsapp/session/qr', 'GET');
-        const fallbackQr = parseQrPayload(qrJson.qr ?? qrJson);
-        if (!fallbackQr) {
-          throw new Error('Nao foi possivel obter QR code para conexao.');
-        }
-        setQrPayload(fallbackQr);
-      } else {
-        setQrPayload(parsedQr);
+      const qrCodeDataUrl = typeof json.qrCodeDataUrl === 'string' ? json.qrCodeDataUrl : null;
+      if (!Boolean(json.connected) && !qrCodeDataUrl) {
+        throw new Error('Nao foi possivel obter QR code para conexao.');
       }
+
+      setQrPayload(qrCodeDataUrl);
 
       setErrorMessage(null);
       setConnected(Boolean(json.connected));
@@ -278,10 +252,10 @@ export function WhatsappPage() {
               Automacoes e lembretes
             </Badge>
             <Title mt="xs" order={2}>
-              WhatsApp nao oficial (WuzAPI)
+              WhatsApp (Evolution API)
             </Title>
             <Text c="dimmed" mt="xs">
-              Configure seu numero e personalize a mensagem que o cliente recebe quando um novo agendamento for criado.
+              Informe seu numero, conecte a instancia e personalize a mensagem de confirmacao enviada em novos agendamentos.
             </Text>
           </div>
         </Group>
