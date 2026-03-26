@@ -53,6 +53,7 @@ export function WhatsappPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [qrPayload, setQrPayload] = useState<string | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
 
   const withTenantQuery = (path: string) => `${API_URL}${path}?tenantId=${tenantId}`;
 
@@ -84,6 +85,7 @@ export function WhatsappPage() {
 
     if (isConnected) {
       setQrPayload(null);
+      setPairingCode(null);
       setSessionMessage(`Numero ${formattedConnectedNumber} conectado com sucesso.`);
     }
 
@@ -144,6 +146,7 @@ export function WhatsappPage() {
 
         if (isConnected) {
           setQrPayload(null);
+          setPairingCode(null);
           setSessionMessage(`Numero ${formattedConnectedNumber} conectado com sucesso.`);
           void loadConfig();
         }
@@ -219,11 +222,13 @@ export function WhatsappPage() {
         connectedNumber: config.connectedNumber,
       });
       const qrCodeDataUrl = typeof json.qrCodeDataUrl === 'string' ? json.qrCodeDataUrl : null;
-      if (!Boolean(json.connected) && !qrCodeDataUrl) {
-        throw new Error('Nao foi possivel obter QR code para conexao.');
+      const responsePairingCode = typeof json.pairingCode === 'string' ? json.pairingCode.trim() : '';
+      if (!Boolean(json.connected) && !qrCodeDataUrl && !responsePairingCode) {
+        throw new Error('Nao foi possivel obter QR code ou codigo de pareamento para conexao.');
       }
 
       setQrPayload(qrCodeDataUrl);
+      setPairingCode(responsePairingCode || null);
 
       setErrorMessage(null);
       setConnected(Boolean(json.connected));
@@ -303,23 +308,38 @@ export function WhatsappPage() {
               : `Desconectado: ${formattedConnectedNumber}`}
           </Alert>
 
-          {qrPayload && !connected ? (
+          {(pairingCode || qrPayload) && !connected ? (
             <Stack gap="xs">
-              <Text fw={600}>Escaneie o QR code no WhatsApp</Text>
-              {qrPayload.startsWith('data:image') ? (
-                <img
-                  src={qrPayload}
-                  alt="QR code de conexao"
-                  style={{ maxWidth: 320, width: '100%', borderRadius: 12, border: '1px solid #e5e7eb' }}
-                />
-              ) : (
-                <Textarea
-                  label="QR recebido"
-                  minRows={3}
-                  value={qrPayload}
-                  readOnly
-                />
-              )}
+              {pairingCode ? (
+                <Alert color="blue" title="Codigo de pareamento (sem QR code)">
+                  <Text fw={700} fz="xl" style={{ letterSpacing: 2 }}>
+                    {pairingCode}
+                  </Text>
+                  <Text size="sm" mt={4}>
+                    No WhatsApp, escolha conectar por codigo e informe este codigo.
+                  </Text>
+                </Alert>
+              ) : null}
+
+              {qrPayload ? (
+                <>
+                  <Text fw={600}>Escaneie o QR code no WhatsApp</Text>
+                  {qrPayload.startsWith('data:image') ? (
+                    <img
+                      src={qrPayload}
+                      alt="QR code de conexao"
+                      style={{ maxWidth: 320, width: '100%', borderRadius: 12, border: '1px solid #e5e7eb' }}
+                    />
+                  ) : (
+                    <Textarea
+                      label="QR recebido"
+                      minRows={3}
+                      value={qrPayload}
+                      readOnly
+                    />
+                  )}
+                </>
+              ) : null}
             </Stack>
           ) : null}
         </Stack>
