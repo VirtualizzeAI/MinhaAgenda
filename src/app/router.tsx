@@ -5,6 +5,7 @@ import { useAuth } from '@/features/auth/auth-context';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage').then((module) => ({ default: module.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('@/features/auth/pages/ResetPasswordPage').then((module) => ({ default: module.ResetPasswordPage })));
 const PublicBookingPage = lazy(() => import('@/features/agenda/pages/PublicBookingPage').then((module) => ({ default: module.PublicBookingPage })));
 const AppShellLayout = lazy(() => import('@/layouts/AppShellLayout').then((module) => ({ default: module.AppShellLayout })));
 const AgendaPage = lazy(() => import('@/features/agenda/pages/AgendaPage').then((module) => ({ default: module.AgendaPage })));
@@ -91,6 +92,14 @@ export function AppRouter() {
           element={
             <Suspense fallback={<RouteFallback />}>
               <ForgotPasswordPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/nova-senha"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <ResetPasswordPage />
             </Suspense>
           }
         />

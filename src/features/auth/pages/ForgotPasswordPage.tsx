@@ -13,7 +13,8 @@ import {
 } from '@mantine/core';
 import { CalendarRange, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
+
+const API_BASE = import.meta.env.VITE_API_URL as string;
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -34,16 +35,16 @@ export function ForgotPasswordPage() {
         return;
       }
 
-      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-        redirectTo: `${window.location.origin}/login`,
+      await fetch(`${API_BASE}/v1/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
       });
 
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-
-      setSuccessMessage('Enviamos um e-mail com instruções para redefinir sua senha.');
+      // Sempre exibe mensagem de sucesso genérica (não vaza se o email existe ou não)
+      setSuccessMessage('Se este e-mail estiver cadastrado, você receberá as instruções em breve. Verifique também a pasta de spam.');
+    } catch {
+      setSuccessMessage('Se este e-mail estiver cadastrado, você receberá as instruções em breve.');
     } finally {
       setLoading(false);
     }
