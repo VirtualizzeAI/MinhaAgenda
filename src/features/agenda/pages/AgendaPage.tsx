@@ -103,6 +103,15 @@ interface NewAppointmentForm {
   notes: string;
 }
 
+interface CreateAppointmentScheduleConfig {
+  slotIntervalMinutes: number;
+  records: Array<{
+    weekday: number;
+    startTime: string;
+    endTime: string;
+  }>;
+}
+
 interface ScheduleDraft {
   id: string;
   weekday: number;
@@ -132,6 +141,12 @@ const weekdayOptions = [
 function toMinutes(value: string): number {
   const [h, m] = value.split(':');
   return Number(h) * 60 + Number(m);
+}
+
+function toTimeLabel(totalMinutes: number): string {
+  const h = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+  const m = String(totalMinutes % 60).padStart(2, '0');
+  return `${h}:${m}`;
 }
 
 function sortWeekdays(values: string[]): string[] {
@@ -193,6 +208,7 @@ export function AgendaPage() {
   const [newAppointmentForm, setNewAppointmentForm] = useState<NewAppointmentForm>(() =>
     getInitialAppointmentForm(dayjs(), ''),
   );
+  const [createScheduleConfig, setCreateScheduleConfig] = useState<CreateAppointmentScheduleConfig | null>(null);
   const [matchedClient, setMatchedClient] = useState<Client | null>(null);
   const [newClientPhone, setNewClientPhone] = useState('');
   const [publicBookingMessage, setPublicBookingMessage] = useState<string | null>(null);
@@ -325,6 +341,88 @@ export function AgendaPage() {
     [agendaWeek, appointmentRecords],
   );
 
+  const createDurationMinutes = useMemo(() => {
+    if (selectedService?.durationMinutes) {
+      return selectedService.durationMinutes;
+    }
+
+    const start = toMinutes(newAppointmentForm.startTime);
+    const end = toMinutes(newAppointmentForm.endTime);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      return end - start;
+    }
+
+    return 30;
+  }, [newAppointmentForm.endTime, newAppointmentForm.startTime, selectedService]);
+
+  const createFormDayAppointments = useMemo(() => {
+    if (!newAppointmentForm.date || !newAppointmentForm.professionalId) {
+      return [] as Appointment[];
+    }
+
+    return appointmentRecords.filter((appointment) =>
+      appointment.professionalId === newAppointmentForm.professionalId
+      && dayjs(appointment.start).isSame(dayjs(newAppointmentForm.date), 'day'));
+  }, [appointmentRecords, newAppointmentForm.date, newAppointmentForm.professionalId]);
+
+  const availableCreateStartTimes = useMemo(() => {
+    if (!newAppointmentForm.date || !newAppointmentForm.professionalId) {
+      return [] as Array<{ value: string; label: string }>;
+    }
+
+    const weekday = dayjs(newAppointmentForm.date).day();
+    const scheduleRows = (createScheduleConfig?.records ?? []).filter((row) => row.weekday === weekday);
+    const windows = scheduleRows.length > 0
+      ? scheduleRows.map((row) => ({ start: toMinutes(row.startTime), end: toMinutes(row.endTime) }))
+      : [{ start: toMinutes('08:00'), end: toMinutes('18:00') }];
+
+    const step = createScheduleConfig?.slotIntervalMinutes ?? 30;
+    const occupied = createFormDayAppointments.map((appointment) => ({
+      start: toMinutes(dayjs(appointment.start).format('HH:mm')),
+      end: toMinutes(dayjs(appointment.end).format('HH:mm')),
+    }));
+
+    const options: Array<{ value: string; label: string }> = [];
+    for (const window of windows) {
+      for (let start = window.start; start + createDurationMinutes <= window.end; start += step) {
+        const end = start + createDurationMinutes;
+        const hasConflict = occupied.some((slot) => start < slot.end && end > slot.start);
+        if (hasConflict) continue;
+
+        const value = toTimeLabel(start);
+        options.push({ value, label: value });
+      }
+    }
+
+    return options;
+  }, [createDurationMinutes, createFormDayAppointments, createScheduleConfig, newAppointmentForm.date, newAppointmentForm.professionalId]);
+
+  useEffect(() => {
+    if (!createOpened) return;
+
+    if (availableCreateStartTimes.length === 0) {
+      return;
+    }
+
+    const currentIsValid = availableCreateStartTimes.some((slot) => slot.value === newAppointmentForm.startTime);
+    if (currentIsValid) {
+      const nextEnd = addMinutesToTime(newAppointmentForm.startTime, createDurationMinutes);
+      if (newAppointmentForm.endTime !== nextEnd) {
+        setNewAppointmentForm((current) => ({ ...current, endTime: nextEnd }));
+      }
+      return;
+    }
+
+    const first = availableCreateStartTimes[0]?.value;
+    if (!first) return;
+
+    setNewAppointmentForm((current) => ({
+      ...current,
+      startTime: first,
+      endTime: addMinutesToTime(first, createDurationMinutes),
+    }));
+  }, [availableCreateStartTimes, createDurationMinutes, createOpened, newAppointmentForm.endTime, newAppointmentForm.startTime]);
+
   const goToAdjacentDay = (direction: -1 | 1) => {
     setSelectedDate((current) => current.add(direction, 'day'));
   };
@@ -357,10 +455,28 @@ export function AgendaPage() {
   );
 
   const handleOpenCreateModal = () => {
+    const defaultProfessionalId = selectedProfessionalId || professionalRecords[0]?.id || '';
     setFormError(null);
     setMatchedClient(null);
     setNewClientPhone('');
-    setNewAppointmentForm(getInitialAppointmentForm(selectedDate, ''));
+    setCreateScheduleConfig(null);
+    setNewAppointmentForm(getInitialAppointmentForm(selectedDate, defaultProfessionalId));
+
+    if (api && defaultProfessionalId) {
+      api.professionals.schedules.list(defaultProfessionalId)
+        .then((config) => {
+          setCreateScheduleConfig({
+            slotIntervalMinutes: config.slotIntervalMinutes,
+            records: config.records.map((row) => ({
+              weekday: row.weekday,
+              startTime: row.startTime,
+              endTime: row.endTime,
+            })),
+          });
+        })
+        .catch(() => setCreateScheduleConfig(null));
+    }
+
     openCreateModal();
   };
 
@@ -692,6 +808,20 @@ export function AgendaPage() {
     }
 
     if (!api) return;
+
+    const hasConflict = appointmentRecords.some((appointment) => {
+      if (appointment.professionalId !== newAppointmentForm.professionalId) return false;
+      if (!dayjs(appointment.start).isSame(start, 'day')) return false;
+
+      const existingStart = dayjs(appointment.start);
+      const existingEnd = dayjs(appointment.end);
+      return start.isBefore(existingEnd) && end.isAfter(existingStart);
+    });
+
+    if (hasConflict) {
+      setFormError('Este horário já está ocupado para o profissional selecionado.');
+      return;
+    }
 
     if (!matchedClient) {
       api.clients.create({ name: clientName, phone: newClientPhone.trim(), tags: ['incomplete'] })
@@ -1276,6 +1406,7 @@ export function AgendaPage() {
           setFormError(null);
           setMatchedClient(null);
           setNewClientPhone('');
+          setCreateScheduleConfig(null);
         }}
         opened={createOpened}
         radius="xl"
@@ -1380,10 +1511,29 @@ export function AgendaPage() {
               }))}
               label="Profissional"
               onChange={(value) => {
+                const nextProfessionalId = value ?? '';
                 setNewAppointmentForm((current) => ({
                   ...current,
-                  professionalId: value ?? current.professionalId,
+                  professionalId: nextProfessionalId,
                 }));
+
+                if (!api || !nextProfessionalId) {
+                  setCreateScheduleConfig(null);
+                  return;
+                }
+
+                api.professionals.schedules.list(nextProfessionalId)
+                  .then((config) => {
+                    setCreateScheduleConfig({
+                      slotIntervalMinutes: config.slotIntervalMinutes,
+                      records: config.records.map((row) => ({
+                        weekday: row.weekday,
+                        startTime: row.startTime,
+                        endTime: row.endTime,
+                      })),
+                    });
+                  })
+                  .catch(() => setCreateScheduleConfig(null));
               }}
               radius="xl"
               value={newAppointmentForm.professionalId}
@@ -1391,14 +1541,13 @@ export function AgendaPage() {
           </Group>
 
           <Group grow>
-            <TextInput
+            <Select
+              data={availableCreateStartTimes}
               label="Início"
-              onChange={(event) => {
-                const value = event.currentTarget.value;
+              onChange={(value) => {
+                if (!value) return;
                 setNewAppointmentForm((current) => {
-                  const nextEndTime = selectedService
-                    ? addMinutesToTime(value, selectedService.durationMinutes)
-                    : current.endTime;
+                  const nextEndTime = addMinutesToTime(value, createDurationMinutes);
 
                   return {
                     ...current,
@@ -1407,8 +1556,8 @@ export function AgendaPage() {
                   };
                 });
               }}
+              placeholder="Selecione um horário disponível"
               radius="xl"
-              type="time"
               value={newAppointmentForm.startTime}
             />
             <TextInput
@@ -1420,8 +1569,15 @@ export function AgendaPage() {
               radius="xl"
               type="time"
               value={newAppointmentForm.endTime}
+              readOnly
             />
           </Group>
+
+          {newAppointmentForm.professionalId && availableCreateStartTimes.length === 0 ? (
+            <Text c="red" fw={600} size="sm">
+              Não há horários livres para este profissional na data selecionada.
+            </Text>
+          ) : null}
 
           <Group grow>
             <TextInput
@@ -1481,13 +1637,14 @@ export function AgendaPage() {
                 setFormError(null);
                 setMatchedClient(null);
                 setNewClientPhone('');
+                setCreateScheduleConfig(null);
               }}
               radius="xl"
               variant="light"
             >
               Cancelar
             </Button>
-            <Button onClick={handleCreateAppointment} radius="xl">
+            <Button onClick={handleCreateAppointment} radius="xl" disabled={newAppointmentForm.professionalId !== '' && availableCreateStartTimes.length === 0}>
               Salvar agendamento
             </Button>
           </Group>
