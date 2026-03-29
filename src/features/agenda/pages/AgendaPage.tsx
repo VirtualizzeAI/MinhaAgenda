@@ -28,6 +28,22 @@ import {
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { Check, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { Appointment, Client, Professional, Service } from '@/services/api/contracts';
+
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback para navegadores ou situações onde clipboard API falha
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+}
 import { useApi } from '@/lib/use-api';
 import { useAuth } from '@/features/auth/auth-context';
 import { ProfessionalSelector } from '@/features/agenda/components/ProfessionalSelector';
@@ -486,7 +502,7 @@ export function AgendaPage() {
     try {
       const data = await api.bookingLinks.current();
       const fullLink = `${window.location.origin}${data.urlPath}`;
-      await navigator.clipboard.writeText(fullLink);
+      await copyToClipboard(fullLink);
       setPublicBookingMessage('Link de autoagendamento copiado com sucesso.');
     } catch (err) {
       setPublicBookingMessage(err instanceof Error ? err.message : 'Não foi possível gerar o link público.');
