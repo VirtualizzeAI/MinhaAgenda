@@ -11,6 +11,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { CalendarRange, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -35,16 +36,38 @@ export function ForgotPasswordPage() {
         return;
       }
 
-      await fetch(`${API_BASE}/v1/auth/forgot-password`, {
+      const response = await fetch(`${API_BASE}/v1/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: normalizedEmail }),
       });
 
-      // Sempre exibe mensagem de sucesso genérica (não vaza se o email existe ou não)
+      const data = (await response.json()) as { ok?: boolean; message?: string };
+
+      if (!response.ok || !data.ok) {
+        setErrorMessage(data.message || 'Não foi possível processar sua solicitação. Tente novamente.');
+        notifications.show({
+          color: 'red',
+          title: 'Erro',
+          message: data.message || 'Não foi possível enviar link de recuperação.',
+        });
+        return;
+      }
+
       setSuccessMessage('Se este e-mail estiver cadastrado, você receberá as instruções em breve. Verifique também a pasta de spam.');
-    } catch {
-      setSuccessMessage('Se este e-mail estiver cadastrado, você receberá as instruções em breve.');
+      notifications.show({
+        color: 'teal',
+        title: 'Link enviado',
+        message: 'Verifique seu e-mail para instruções de recuperação de senha.',
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido';
+      setErrorMessage(errorMsg);
+      notifications.show({
+        color: 'red',
+        title: 'Erro de conexão',
+        message: 'Não foi possível conectar ao servidor. Tente novamente.',
+      });
     } finally {
       setLoading(false);
     }

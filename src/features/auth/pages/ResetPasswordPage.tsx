@@ -11,6 +11,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { CalendarRange, CheckCircle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -60,6 +61,11 @@ export function ResetPasswordPage() {
       }
 
       setSuccess(true);
+      notifications.show({
+        color: 'teal',
+        title: 'Senha alterada',
+        message: 'Sua nova senha foi salva com sucesso. Redirecionando para o login...',
+      });
       setTimeout(() => navigate('/login'), 3000);
     } finally {
       setLoading(false);

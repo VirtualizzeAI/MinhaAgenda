@@ -12,6 +12,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { CalendarRange, LockKeyhole } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/auth-context';
@@ -41,6 +42,11 @@ export function LoginPage() {
 
     try {
       await login({ email, password });
+      notifications.show({
+        color: 'teal',
+        title: 'Login realizado',
+        message: 'Você entrou com sucesso no sistema.',
+      });
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : 'Não foi possível fazer login. Tente novamente.');
     } finally {
