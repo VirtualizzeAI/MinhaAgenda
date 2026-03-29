@@ -25,16 +25,46 @@ export function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
 
-  // O Supabase processa automaticamente os tokens (#access_token=...) da URL
-  // e dispara o evento PASSWORD_RECOVERY.
   useEffect(() => {
+    let isMounted = true;
+
+    const tokenHash = new URLSearchParams(window.location.search).get('token_hash');
+
+    if (tokenHash) {
+      void supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: 'recovery',
+      }).then(({ error }) => {
+        if (!isMounted) return;
+
+        if (error) {
+          setErrorMessage('Link de redefinição inválido ou expirado. Solicite um novo e-mail.');
+          return;
+        }
+
+        setSessionReady(true);
+      });
+
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
         setSessionReady(true);
       }
     });
 
-    return () => subscription.unsubscribe();
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (session) setSessionReady(true);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
