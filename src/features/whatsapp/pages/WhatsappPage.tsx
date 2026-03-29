@@ -57,16 +57,14 @@ export function WhatsappPage() {
 
   const withTenantQuery = (path: string) => `${API_URL}${path}?tenantId=${tenantId}`;
 
-  const formattedConnectedNumber = useMemo(() => {
-    const digits = config.connectedNumber.replace(/\D/g, '');
-    if (digits.length === 11) {
-      return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-    }
-    if (digits.length === 10) {
-      return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-    }
+  function formatNumber(raw: string): string {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+    if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
     return digits || 'Nao informado';
-  }, [config.connectedNumber]);
+  }
+
+  const formattedConnectedNumber = useMemo(() => formatNumber(config.connectedNumber), [config.connectedNumber]);
 
   const fetchSessionStatus = async () => {
     const response = await fetch(withTenantQuery('/v1/whatsapp/session/status'), {
@@ -86,7 +84,8 @@ export function WhatsappPage() {
     if (isConnected) {
       setQrPayload(null);
       setPairingCode(null);
-      setSessionMessage(`Numero ${formattedConnectedNumber} conectado com sucesso.`);
+      const numberFromApi = (json.connectedNumber as string) ?? '';
+      setSessionMessage(`Número ${formatNumber(numberFromApi)} conectado com sucesso.`);
     }
 
     return json;
@@ -94,7 +93,7 @@ export function WhatsappPage() {
 
   const requireSession = () => {
     if (!token || !tenantId) {
-      throw new Error('Sessao invalida. Faca login novamente.');
+      throw new Error('Sessão inválida. Faça login novamente.');
     }
   };
 
@@ -109,7 +108,7 @@ export function WhatsappPage() {
 
       const json = await response.json() as Record<string, unknown>;
       if (!response.ok) {
-        throw new Error((json.message as string) ?? 'Erro ao carregar configuracao do WhatsApp');
+        throw new Error((json.message as string) ?? 'Erro ao carregar configuração do WhatsApp');
       }
 
       setConfig({
@@ -124,7 +123,7 @@ export function WhatsappPage() {
         setConnected(false);
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Erro ao carregar configuracao do WhatsApp');
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao carregar configuração do WhatsApp');
     } finally {
       setLoading(false);
     }
@@ -147,7 +146,7 @@ export function WhatsappPage() {
         if (isConnected) {
           setQrPayload(null);
           setPairingCode(null);
-          setSessionMessage(`Numero ${formattedConnectedNumber} conectado com sucesso.`);
+          setSessionMessage(`Número ${formattedConnectedNumber} conectado com sucesso.`);
           void loadConfig();
         }
       }).catch(() => {
@@ -176,18 +175,18 @@ export function WhatsappPage() {
 
       const json = await response.json() as Record<string, unknown>;
       if (!response.ok) {
-        throw new Error((json.message as string) ?? 'Erro ao salvar configuracao do WhatsApp');
+        throw new Error((json.message as string) ?? 'Erro ao salvar configuração do WhatsApp');
       }
 
       setErrorMessage(null);
-      setSuccessMessage((json.message as string) ?? 'Configuracao salva com sucesso.');
+      setSuccessMessage((json.message as string) ?? 'Configuração salva com sucesso.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Erro ao salvar configuracao do WhatsApp');
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao salvar configuração do WhatsApp');
     }
   };
 
   const callSessionAction = async (
-    path: '/v1/whatsapp/session/connect' | '/v1/whatsapp/session/status' | '/v1/whatsapp/session/sync',
+    path: '/v1/whatsapp/session/connect' | '/v1/whatsapp/session/status' | '/v1/whatsapp/session/sync' | '/v1/whatsapp/session/disconnect',
     method: 'GET' | 'POST',
     body?: Record<string, unknown>,
   ) => {
@@ -204,10 +203,25 @@ export function WhatsappPage() {
 
     const json = await response.json() as Record<string, unknown>;
     if (!response.ok) {
-      throw new Error((json.message as string) ?? 'Erro na sessao do WhatsApp');
+      throw new Error((json.message as string) ?? 'Erro na sessão do WhatsApp');
     }
 
     return json;
+  };
+
+  const onDisconnect = async () => {
+    try {
+      setConnecting(true);
+      await callSessionAction('/v1/whatsapp/session/disconnect', 'POST');
+      setConnected(false);
+      setSessionMessage(null);
+      setConfig((current) => ({ ...current, connectedNumber: '' }));
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao desconectar WhatsApp');
+    } finally {
+      setConnecting(false);
+    }
   };
 
   const onConnect = async () => {
@@ -215,7 +229,7 @@ export function WhatsappPage() {
       setConnecting(true);
 
       if (!config.connectedNumber.trim()) {
-        throw new Error('Informe o numero para conectar.');
+        throw new Error('Informe o número para conectar.');
       }
 
       const json = await callSessionAction('/v1/whatsapp/session/connect', 'POST', {
@@ -224,7 +238,7 @@ export function WhatsappPage() {
       const qrCodeDataUrl = typeof json.qrCodeDataUrl === 'string' ? json.qrCodeDataUrl : null;
       const responsePairingCode = typeof json.pairingCode === 'string' ? json.pairingCode.trim() : '';
       if (!Boolean(json.connected) && !qrCodeDataUrl && !responsePairingCode) {
-        throw new Error('Nao foi possivel obter QR code ou codigo de pareamento para conexao.');
+        throw new Error('Não foi possível obter QR code ou código de pareamento para conexão.');
       }
 
       setQrPayload(qrCodeDataUrl);
@@ -232,9 +246,9 @@ export function WhatsappPage() {
 
       setErrorMessage(null);
       setConnected(Boolean(json.connected));
-      setSessionMessage((json.message as string) ?? 'Conexao iniciada. Escaneie o QR code abaixo.');
+      setSessionMessage((json.message as string) ?? 'Conexão iniciada. Escaneie o QR code abaixo.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Erro ao iniciar conexao WhatsApp');
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao iniciar conexão WhatsApp');
     } finally {
       setConnecting(false);
     }
@@ -267,8 +281,8 @@ export function WhatsappPage() {
       </Card>
 
       {successMessage ? <Alert color="teal" title="Tudo certo">{successMessage}</Alert> : null}
-      {sessionMessage ? <Alert color="grape" title="Sessao WhatsApp">{sessionMessage}</Alert> : null}
-      {errorMessage ? <Alert color="red" title="Atencao">{errorMessage}</Alert> : null}
+      {sessionMessage ? <Alert color="grape" title="Sessão WhatsApp">{sessionMessage}</Alert> : null}
+      {errorMessage ? <Alert color="red" title="Atenção">{errorMessage}</Alert> : null}
 
       <Card radius="xl" p="lg" withBorder>
         <Stack gap="md">
@@ -297,9 +311,15 @@ export function WhatsappPage() {
           />
 
           <Group>
-            <Button radius="xl" variant="light" loading={connecting} onClick={() => void onConnect()}>
-              Conectar
-            </Button>
+            {connected ? (
+              <Button radius="xl" variant="light" color="red" loading={connecting} onClick={() => void onDisconnect()}>
+                Desconectar
+              </Button>
+            ) : (
+              <Button radius="xl" variant="light" loading={connecting} onClick={() => void onConnect()}>
+                Conectar
+              </Button>
+            )}
           </Group>
 
           <Alert color={connected ? 'teal' : 'yellow'} title="Status do número">
