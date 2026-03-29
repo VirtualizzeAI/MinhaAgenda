@@ -192,12 +192,17 @@ export function WhatsappPage() {
   ) => {
     requireSession();
 
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+
+    if (body) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(withTenantQuery(path), {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
 
