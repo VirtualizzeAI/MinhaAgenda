@@ -11,7 +11,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
+import { showNotif } from '@/lib/notify';
 import { CalendarRange, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -46,7 +46,7 @@ export function ForgotPasswordPage() {
 
       if (!response.ok || !data.ok) {
         setErrorMessage(data.message || 'Não foi possível processar sua solicitação. Tente novamente.');
-        notifications.show({
+        showNotif({
           color: 'red',
           title: 'Erro',
           message: data.message || 'Não foi possível enviar link de recuperação.',
@@ -55,7 +55,7 @@ export function ForgotPasswordPage() {
       }
 
       setSuccessMessage('Se este e-mail estiver cadastrado, você receberá as instruções em breve. Verifique também a pasta de spam.');
-      notifications.show({
+      showNotif({
         color: 'teal',
         title: 'Link enviado',
         message: 'Verifique seu e-mail para instruções de recuperação de senha.',
@@ -63,7 +63,7 @@ export function ForgotPasswordPage() {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido';
       setErrorMessage(errorMsg);
-      notifications.show({
+      showNotif({
         color: 'red',
         title: 'Erro de conexão',
         message: 'Não foi possível conectar ao servidor. Tente novamente.',

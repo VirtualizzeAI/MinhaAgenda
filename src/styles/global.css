@@ -29,3 +29,13 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+@keyframes notif-bar-shrink {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}
