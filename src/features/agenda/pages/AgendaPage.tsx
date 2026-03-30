@@ -79,6 +79,14 @@ function formatPhoneAgenda(value: string): string {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
 }
 
+function formatCpfAgenda(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`;
+}
+
 const statusOptions = [
   { value: 'confirmed', label: 'Confirmado' },
   { value: 'in-progress', label: 'Em atendimento' },
@@ -227,6 +235,8 @@ export function AgendaPage() {
   const [createScheduleConfig, setCreateScheduleConfig] = useState<CreateAppointmentScheduleConfig | null>(null);
   const [matchedClient, setMatchedClient] = useState<Client | null>(null);
   const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientCpf, setNewClientCpf] = useState('');
+  const [scheduleCpfConflict, setScheduleCpfConflict] = useState<{ cpf: string; incomingName: string; existingName: string } | null>(null);
   const [publicBookingMessage, setPublicBookingMessage] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
@@ -475,6 +485,8 @@ export function AgendaPage() {
     setFormError(null);
     setMatchedClient(null);
     setNewClientPhone('');
+    setNewClientCpf('');
+    setScheduleCpfConflict(null);
     setCreateScheduleConfig(null);
     setNewAppointmentForm(getInitialAppointmentForm(selectedDate, defaultProfessionalId));
 
@@ -839,16 +851,52 @@ export function AgendaPage() {
       return;
     }
 
-    if (!matchedClient) {
-      api.clients.create({ name: clientName, phone: newClientPhone.trim(), tags: ['incomplete'] })
-        .then((c) => setClientRecords((cur) => [c, ...cur]))
-        .catch(console.error);
+    let clientForAppointment: Client | null = matchedClient;
+
+    if (!clientForAppointment) {
+      const newClientCpfDigits = newClientCpf.replace(/\D/g, '');
+      if (newClientCpfDigits.length !== 11) {
+        setFormError('Informe o CPF do novo cliente com 11 dígitos.');
+        return;
+      }
+
+      const existingCpfClient = clientRecords.find(
+        (client) => client.cpf.replace(/\D/g, '') === newClientCpfDigits,
+      );
+
+      if (existingCpfClient) {
+        if (normalizeSearch(existingCpfClient.name) !== normalizeSearch(clientName)) {
+          setScheduleCpfConflict({
+            cpf: formatCpfAgenda(newClientCpfDigits),
+            incomingName: clientName,
+            existingName: existingCpfClient.name,
+          });
+          return;
+        }
+
+        clientForAppointment = existingCpfClient;
+      } else {
+        try {
+          const createdClient = await api.clients.create({
+            name: clientName,
+            phone: newClientPhone.trim(),
+            cpf: formatCpfAgenda(newClientCpfDigits),
+            tags: ['incomplete'],
+          });
+          setClientRecords((current) => [createdClient, ...current]);
+          clientForAppointment = createdClient;
+        } catch (err) {
+          setFormError(err instanceof Error ? err.message : 'Erro ao cadastrar cliente para o agendamento.');
+          return;
+        }
+      }
     }
 
     try {
       const created = await api.appointments.create({
         professionalId: newAppointmentForm.professionalId,
-        clientName,
+        clientId: clientForAppointment?.id,
+        clientName: clientForAppointment?.name ?? clientName,
         serviceName,
         room,
         startAt: start.toISOString(),
@@ -862,6 +910,8 @@ export function AgendaPage() {
       setFormError(null);
       setMatchedClient(null);
       setNewClientPhone('');
+      setNewClientCpf('');
+      setScheduleCpfConflict(null);
       closeCreateModal();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Erro ao criar agendamento.');
@@ -1436,6 +1486,7 @@ export function AgendaPage() {
                 setMatchedClient(client);
                 setNewAppointmentForm((current) => ({ ...current, clientName: client.name }));
                 setNewClientPhone('');
+                setNewClientCpf('');
               }
               clientCombobox.closeDropdown();
             }}
@@ -1449,7 +1500,10 @@ export function AgendaPage() {
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   setNewAppointmentForm((current) => ({ ...current, clientName: value }));
-                  if (matchedClient && value !== matchedClient.name) setMatchedClient(null);
+                  if (matchedClient && value !== matchedClient.name) {
+                    setMatchedClient(null);
+                    setNewClientCpf('');
+                  }
                   clientCombobox.openDropdown();
                 }}
                 onFocus={() => {
@@ -1479,16 +1533,28 @@ export function AgendaPage() {
           </Combobox>
 
           {!matchedClient && newAppointmentForm.clientName.trim().length > 0 ? (
-            <TextInput
-              label="Telefone (novo cliente)"
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setNewClientPhone(formatPhoneAgenda(value));
-              }}
-              placeholder="(00) 00000-0000"
-              radius="xl"
-              value={newClientPhone}
-            />
+            <Group grow>
+              <TextInput
+                label="Telefone (novo cliente)"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setNewClientPhone(formatPhoneAgenda(value));
+                }}
+                placeholder="(00) 00000-0000"
+                radius="xl"
+                value={newClientPhone}
+              />
+              <TextInput
+                label="CPF (novo cliente)"
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setNewClientCpf(formatCpfAgenda(value));
+                }}
+                placeholder="000.000.000-00"
+                radius="xl"
+                value={newClientCpf}
+              />
+            </Group>
           ) : null}
 
           <Autocomplete
@@ -1653,6 +1719,8 @@ export function AgendaPage() {
                 setFormError(null);
                 setMatchedClient(null);
                 setNewClientPhone('');
+                setNewClientCpf('');
+                setScheduleCpfConflict(null);
                 setCreateScheduleConfig(null);
               }}
               radius="xl"
@@ -1665,6 +1733,28 @@ export function AgendaPage() {
             </Button>
           </Group>
         </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => setScheduleCpfConflict(null)}
+        opened={scheduleCpfConflict !== null}
+        radius="xl"
+        title="CPF já cadastrado com outro nome"
+      >
+        {scheduleCpfConflict ? (
+          <Stack gap="sm">
+            <Text size="sm">
+              O CPF {scheduleCpfConflict.cpf} já está cadastrado para {scheduleCpfConflict.existingName}.
+            </Text>
+            <Text size="sm">
+              Você informou o nome {scheduleCpfConflict.incomingName}. Corrija o nome ou CPF antes de salvar o agendamento.
+            </Text>
+            <Button onClick={() => setScheduleCpfConflict(null)} radius="xl">
+              Entendi
+            </Button>
+          </Stack>
+        ) : null}
       </Modal>
 
       <Modal

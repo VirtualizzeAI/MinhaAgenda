@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420" viewBox="0 0 800 420">
+  <rect width="800" height="420" fill="#f8fffb" />
+  <rect x="16" y="16" rx="10" width="768" height="388" fill="#ffffff" stroke="#e6fff7" />
+  <rect x="40" y="48" width="720" height="60" rx="6" fill="#f3faf8" />
+  <rect x="40" y="120" width="220" height="200" rx="6" fill="#eefaf7" />
+  <rect x="280" y="120" width="260" height="200" rx="6" fill="#fbfffe" />
+  <rect x="560" y="120" width="200" height="200" rx="6" fill="#f1fffb" />
+  <text x="40" y="36" font-family="Arial" font-size="14" fill="#056b6b">Relatórios e faturamento</text>
+</svg>

@@ -7,6 +7,7 @@ import {
   Card,
   Center,
   Container,
+  Divider,
   Group,
   Loader,
   Modal,
@@ -54,6 +55,7 @@ export function PublicBookingPage() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slots, setSlots] = useState<PublicBookingSlot[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorPopup, setErrorPopup] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -68,6 +70,7 @@ export function PublicBookingPage() {
   useEffect(() => {
     if (!slug) {
       setError('Link de agendamento inválido.');
+      setErrorPopup('Link de agendamento inválido.');
       setLoadingBootstrap(false);
       return;
     }
@@ -79,7 +82,9 @@ export function PublicBookingPage() {
         setServiceIds(data.services[0]?.id ? [data.services[0].id] : []);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Não foi possível carregar o link.');
+        const message = err instanceof Error ? err.message : 'Não foi possível carregar o link.';
+        setError(message);
+        setErrorPopup(message);
       })
       .finally(() => setLoadingBootstrap(false));
   }, [slug]);
@@ -120,7 +125,9 @@ export function PublicBookingPage() {
         setSlots(data);
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar horários.');
+        const message = err instanceof Error ? err.message : 'Erro ao carregar horários.';
+        setError(message);
+        setErrorPopup(message);
       })
       .finally(() => setLoadingSlots(false));
   }, [bootstrap, date, professionalId, serviceIds, selectedServices.length, slug, totalDurationMinutes]);
@@ -154,10 +161,12 @@ export function PublicBookingPage() {
     event.preventDefault();
     if (!canSubmit) {
       setError('Preencha todos os campos obrigatórios para confirmar.');
+      setErrorPopup('Preencha todos os campos obrigatórios para confirmar.');
       return;
     }
 
     setError(null);
+    setErrorPopup(null);
     setSuccess(null);
     openConfirmModal();
   };
@@ -166,6 +175,7 @@ export function PublicBookingPage() {
     if (!canSubmit) return;
 
     setError(null);
+    setErrorPopup(null);
     setSuccess(null);
     setSaving(true);
 
@@ -197,7 +207,9 @@ export function PublicBookingPage() {
       });
       setSlots(refreshed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível concluir o agendamento.');
+      const message = err instanceof Error ? err.message : 'Não foi possível concluir o agendamento.';
+      setError(message);
+      setErrorPopup(message);
     } finally {
       setSaving(false);
     }
@@ -213,25 +225,73 @@ export function PublicBookingPage() {
 
   return (
     <Container py="xl" size="sm">
+      <Modal
+        centered
+        onClose={() => setErrorPopup(null)}
+        opened={errorPopup !== null}
+        radius="xl"
+        size="sm"
+        title={
+          <Text c="red" fw={800} size="lg">
+            Atenção
+          </Text>
+        }
+      >
+        <Stack gap="md">
+          <Text size="sm">{errorPopup}</Text>
+          <Button fullWidth color="red" onClick={() => setErrorPopup(null)} radius="xl" variant="light">
+            Fechar
+          </Button>
+        </Stack>
+      </Modal>
+
       <Stack gap="lg">
         <Modal
           centered
           onClose={closeConfirmModal}
           opened={confirmOpened}
-          title="Confirmar agendamento"
+          radius="xl"
+          size="md"
+          title={
+            <Text fw={800} size="lg">
+              Confirmar agendamento
+            </Text>
+          }
         >
-          <Stack gap="xs">
-            <Text size="sm"><strong>Profissional:</strong> {selectedProfessional?.name ?? '-'}</Text>
-            <Text size="sm"><strong>Data:</strong> {dayjs(date).format('DD/MM/YYYY')}</Text>
-            <Text size="sm"><strong>Horário:</strong> {time || '-'}</Text>
-            <Text size="sm"><strong>Serviços:</strong> {selectedServices.map((s) => s.name).join(' + ') || '-'}</Text>
-            <Text size="sm"><strong>Duração total:</strong> {totalDurationMinutes} min</Text>
-            <Text size="sm"><strong>Valor total:</strong> R$ {totalPrice.toFixed(2).replace('.', ',')}</Text>
-            <Text size="sm"><strong>Cliente:</strong> {clientName || '-'}</Text>
-            <Text size="sm"><strong>Telefone:</strong> {clientPhone || '-'}</Text>
-            <Text size="sm"><strong>CPF:</strong> {clientCpf || '-'}</Text>
+          <Stack gap="md">
+            <Stack gap={6}>
+              <Text c="dimmed" size="xs" tt="uppercase" fw={600}>Serviço</Text>
+              <Text fw={600}>{selectedServices.map((s) => s.name).join(' + ') || '-'}</Text>
+              <Group gap="xs">
+                <Badge color="teal" radius="xl" variant="light">{totalDurationMinutes} min</Badge>
+                <Badge color="teal" radius="xl" variant="light">
+                  R$ {totalPrice.toFixed(2).replace('.', ',')}
+                </Badge>
+              </Group>
+            </Stack>
 
-            <Group justify="flex-end" mt="sm">
+            <Divider />
+
+            <Stack gap={6}>
+              <Text c="dimmed" size="xs" tt="uppercase" fw={600}>Quando</Text>
+              <Group gap="xs">
+                <Text fw={600}>{dayjs(date).format('DD/MM/YYYY')}</Text>
+                <Text c="dimmed">às</Text>
+                <Text fw={600}>{time || '-'}</Text>
+              </Group>
+              <Text size="sm" c="dimmed">Profissional: {selectedProfessional?.name ?? '-'}</Text>
+            </Stack>
+
+            <Divider />
+
+            <Stack gap={6}>
+              <Text c="dimmed" size="xs" tt="uppercase" fw={600}>Seus dados</Text>
+              <Text fw={600}>{clientName || '-'}</Text>
+              <Text size="sm" c="dimmed">{clientPhone || '-'}</Text>
+              <Text size="sm" c="dimmed">CPF: {clientCpf || '-'}</Text>
+            </Stack>
+
+            <Group grow mt="xs">
               <Button onClick={closeConfirmModal} radius="xl" variant="light">
                 Corrigir
               </Button>
@@ -261,7 +321,6 @@ export function PublicBookingPage() {
 
         <Card component="form" onSubmit={handleSubmit} padding="lg" radius="xl" withBorder>
           <Stack gap="md">
-            {error ? <Alert color="red" title="Não foi possível continuar">{error}</Alert> : null}
             {success ? <Alert color="teal" title="Tudo certo">{success}</Alert> : null}
             {!error && !hasCatalogData ? (
               <Alert color="yellow" title="Catálogo indisponível">
@@ -338,6 +397,10 @@ export function PublicBookingPage() {
               required
               value={clientCpf}
             />
+
+            {/* <Text c="dimmed" size="sm">
+              O CPF e o nome informado são validados juntos para garantir o vínculo correto do seu histórico.
+            </Text> */}
 
             <Button color="teal" disabled={!canSubmit || !hasCatalogData} radius="xl" size="md" type="submit">
               Revisar e agendar

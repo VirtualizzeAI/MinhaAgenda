@@ -20,7 +20,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { CalendarPlus, Search, UserPlus, Users } from 'lucide-react';
-import { AppointmentStatus, Client, ClientTag, Professional } from '@/services/api/contracts';
+import { Appointment, AppointmentStatus, Client, ClientTag, Professional } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 
 const defaultAppointmentStatuses = ['confirmed', 'in-progress', 'attention', 'available'];
@@ -45,6 +45,7 @@ interface NewAppointmentForm {
   date: string;
   startTime: string;
   endTime: string;
+  clientId: string;
   clientName: string;
   serviceName: string;
   room: string;
@@ -138,6 +139,8 @@ export function ClientsPage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [appointmentStatusOptions, setAppointmentStatusOptions] = useState<string[]>(defaultAppointmentStatuses);
+  const [appointmentRecords, setAppointmentRecords] = useState<Appointment[]>([]);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('all');
 
   useEffect(() => {
     if (!api) return;
@@ -156,6 +159,7 @@ export function ClientsPage() {
     if (!api) return;
     api.appointments.list()
       .then((appointments) => {
+        setAppointmentRecords(appointments);
         setAppointmentStatusOptions((current) => Array.from(new Set([
           ...current,
           ...appointments.map((appointment) => appointment.status),
@@ -194,6 +198,7 @@ export function ClientsPage() {
 
   const handleOpenClient = (client: Client) => {
     setSelectedClient(client);
+    setHistoryStatusFilter('all');
     open();
   };
 
@@ -203,6 +208,7 @@ export function ClientsPage() {
       date: dayjs().format('YYYY-MM-DD'),
       startTime: '09:00',
       endTime: '10:00',
+      clientId: client.id,
       clientName: client.name,
       serviceName: '',
       room: '',
@@ -234,8 +240,9 @@ export function ClientsPage() {
 
     if (!api) return;
     try {
-      await api.appointments.create({
+      const created = await api.appointments.create({
         professionalId: scheduleForm.professionalId,
+        clientId: scheduleForm.clientId,
         clientName: scheduleForm.clientName,
         serviceName,
         room,
@@ -244,6 +251,8 @@ export function ClientsPage() {
         status: scheduleForm.status,
         notes: scheduleForm.notes.trim() || undefined,
       });
+      setAppointmentRecords((current) => [created, ...current]);
+      setAppointmentStatusOptions((current) => Array.from(new Set([...current, created.status])));
     } catch (err) {
       setScheduleError(err instanceof Error ? err.message : 'Erro ao criar agendamento.');
       return;
@@ -329,6 +338,31 @@ export function ClientsPage() {
     setFormError(null);
     openCreateModal();
   };
+
+  const professionalNameById = useMemo(() => {
+    return professionalRecords.reduce<Record<string, string>>((acc, professional) => {
+      acc[professional.id] = professional.name;
+      return acc;
+    }, {});
+  }, [professionalRecords]);
+
+  const selectedClientServiceHistory = useMemo(() => {
+    if (!selectedClient) return [];
+    const normalizedSelectedName = normalizeText(selectedClient.name);
+
+    return appointmentRecords
+      .filter((appointment) => normalizeText(appointment.clientName) === normalizedSelectedName)
+      .sort((a, b) => dayjs(b.start).valueOf() - dayjs(a.start).valueOf());
+  }, [appointmentRecords, selectedClient]);
+
+  const historyStatusOptions = useMemo(() => {
+    return Array.from(new Set(selectedClientServiceHistory.map((appointment) => appointment.status)));
+  }, [selectedClientServiceHistory]);
+
+  const filteredServiceHistory = useMemo(() => {
+    if (historyStatusFilter === 'all') return selectedClientServiceHistory;
+    return selectedClientServiceHistory.filter((appointment) => appointment.status === historyStatusFilter);
+  }, [historyStatusFilter, selectedClientServiceHistory]);
 
   return (
     <Stack gap="lg">
@@ -537,6 +571,49 @@ export function ClientsPage() {
                 <Text fw={600}>{selectedClient.notes}</Text>
               </Card>
             ) : null}
+
+            <Card p="md" radius="xl" withBorder>
+              <Text c="dimmed" size="sm">
+                Histórico de serviços
+              </Text>
+              <Select
+                data={[
+                  { value: 'all', label: 'Todos os status' },
+                  ...historyStatusOptions.map((status) => ({
+                    value: status,
+                    label: formatStatusLabel(status),
+                  })),
+                ]}
+                mt="sm"
+                onChange={(value) => setHistoryStatusFilter(value ?? 'all')}
+                radius="xl"
+                value={historyStatusFilter}
+              />
+              <Stack gap="xs" mt="sm">
+                {filteredServiceHistory.length > 0 ? filteredServiceHistory.map((appointment) => (
+                  <Card key={appointment.id} p="sm" radius="lg" withBorder>
+                    <Group justify="space-between" align="flex-start" gap="xs" wrap="nowrap">
+                      <div>
+                        <Text fw={700}>{appointment.serviceName}</Text>
+                        <Text c="dimmed" size="sm">
+                          {dayjs(appointment.start).format('DD/MM/YYYY [às] HH:mm')}
+                        </Text>
+                        <Text c="dimmed" size="sm">
+                          Profissional: {professionalNameById[appointment.professionalId] ?? 'Não informado'}
+                        </Text>
+                      </div>
+                      <Badge color="teal" radius="xl" variant="light">
+                        {formatStatusLabel(appointment.status)}
+                      </Badge>
+                    </Group>
+                  </Card>
+                )) : (
+                  <Text c="dimmed" size="sm">
+                    Nenhum serviço registrado para este cliente até o momento.
+                  </Text>
+                )}
+              </Stack>
+            </Card>
           </Stack>
         ) : null}
       </Drawer>
@@ -654,6 +731,7 @@ export function ClientsPage() {
           </Group>
         </Stack>
       </Modal>
+
       {scheduleForm ? (
         <Modal
           centered

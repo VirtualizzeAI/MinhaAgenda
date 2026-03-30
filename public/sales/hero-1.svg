@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0" stop-color="#e6fffa"/>
+      <stop offset="1" stop-color="#dff7f2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="700" fill="url(#g)" />
+  <rect x="80" y="70" rx="12" ry="12" width="1040" height="520" fill="#ffffff" stroke="#cfeee9" stroke-width="2" />
+  <rect x="110" y="110" width="980" height="36" rx="6" fill="#f3faf8" />
+  <rect x="110" y="160" width="740" height="16" rx="6" fill="#eefaf7" />
+  <rect x="110" y="190" width="900" height="220" rx="8" fill="#fbfffe" />
+  <g transform="translate(128, 210)">
+    <rect x="0" y="0" width="220" height="120" rx="6" fill="#e9fffb" />
+    <rect x="240" y="0" width="380" height="120" rx="6" fill="#f7fffd" />
+    <rect x="640" y="0" width="240" height="120" rx="6" fill="#f1fffb" />
+  </g>
+  <text x="120" y="60" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#0f766e">Minha Agenda — visão geral</text>
+</svg>

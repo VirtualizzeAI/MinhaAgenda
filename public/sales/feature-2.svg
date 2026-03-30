@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420" viewBox="0 0 800 420">
+  <rect width="800" height="420" fill="#ffffff" />
+  <rect x="16" y="16" rx="10" width="768" height="388" fill="#fffdf8" stroke="#f7efe8" />
+  <rect x="40" y="48" width="720" height="120" rx="8" fill="#fff9f3" />
+  <rect x="40" y="180" width="340" height="180" rx="8" fill="#fffdf8" />
+  <rect x="400" y="180" width="360" height="180" rx="8" fill="#fffaf9" />
+  <text x="40" y="36" font-family="Arial" font-size="14" fill="#b45309">Gerenciamento de clientes</text>
+</svg>

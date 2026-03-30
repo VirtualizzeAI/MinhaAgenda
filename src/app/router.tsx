@@ -17,6 +17,7 @@ const ProfessionalsPage = lazy(() => import('@/features/professionals/pages/Prof
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const ProfilePage = lazy(() => import('@/features/profile/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 const WhatsappPage = lazy(() => import('@/features/whatsapp/pages/WhatsappPage').then((module) => ({ default: module.WhatsappPage })));
+const SalesPage = lazy(() => import('@/features/sales/pages/SalesPage').then((module) => ({ default: module.SalesPage })));
 
 function RouteFallback() {
   return (
@@ -103,6 +104,25 @@ export function AppRouter() {
             </Suspense>
           }
         />
+
+        <Route
+          path="/vendas"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <SalesPage />
+            </Suspense>
+          }
+        />
+
+        <Route
+          path="/sales"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <SalesPage />
+            </Suspense>
+          }
+        />
+
         <Route path="/*" element={<ProtectedRoutes />} />
       </Routes>
     </BrowserRouter>
