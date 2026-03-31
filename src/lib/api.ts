@@ -9,6 +9,7 @@ import type {
   Order,
   OrderStatus,
   Professional,
+  ProfessionalSpecialty,
   ProfessionalScheduleConfig,
   ProfessionalSchedule,
   Service,
@@ -61,6 +62,15 @@ interface RawProfessionalScheduleResponse {
   slot_interval_minutes: number;
   min_booking_notice_minutes?: number;
   records: RawProfessionalSchedule[];
+}
+
+interface RawProfessionalSpecialty {
+  id: string;
+  tenant_id: string;
+  name: string;
+  normalized_name: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RawService {
@@ -175,6 +185,13 @@ function mapProfessionalSchedule(r: RawProfessionalSchedule): ProfessionalSchedu
   };
 }
 
+function mapProfessionalSpecialty(r: RawProfessionalSpecialty): ProfessionalSpecialty {
+  return {
+    id: r.id,
+    name: r.name,
+  };
+}
+
 function mapService(r: RawService): Service {
   return {
     id: r.id,
@@ -281,6 +298,24 @@ export function createApiClient(token: string, tenantId: string) {
       list: async (): Promise<Professional[]> => {
         const res = await req<{ records: RawProfessional[] }>('GET', `/v1/professionals${tq}`, token);
         return res.records.map(mapProfessional);
+      },
+      specialties: {
+        list: async (): Promise<ProfessionalSpecialty[]> => {
+          const res = await req<{ records: RawProfessionalSpecialty[] }>(
+            'GET',
+            `/v1/professionals/specialties${tq}`,
+            token,
+          );
+          return res.records.map(mapProfessionalSpecialty);
+        },
+        create: async (name: string): Promise<ProfessionalSpecialty> => {
+          const res = await req<RawProfessionalSpecialty>('POST', '/v1/professionals/specialties', token, {
+            tenant_id: tenantId,
+            name,
+          });
+          return mapProfessionalSpecialty(res);
+        },
+        remove: (id: string): Promise<void> => req('DELETE', `/v1/professionals/specialties/${id}${tq}`, token),
       },
       create: async (data: {
         name: string;

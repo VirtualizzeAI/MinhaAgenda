@@ -19,7 +19,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { CalendarDays, Plus, Search } from 'lucide-react';
-import { Professional } from '@/services/api/contracts';
+import { Professional, ProfessionalSpecialty } from '@/services/api/contracts';
 import { useApi } from '@/lib/use-api';
 
 type ProfessionalFilter = 'all' | 'active' | 'inactive';
@@ -47,7 +47,6 @@ const initialForm: NewProfessionalForm = {
   active: true,
 };
 
-const defaultSpecialties: string[] = [];
 const intervalUnitOptions = [
   { value: 'minutes', label: 'Minutos' },
   { value: 'hours', label: 'Horas' },
@@ -87,12 +86,14 @@ export function ProfessionalsPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<ProfessionalFilter>('all');
   const [opened, { open, close }] = useDisclosure(false);
+  const [specialtiesOpened, { open: openSpecialties, close: closeSpecialties }] = useDisclosure(false);
   const [scheduleOpened, { open: openSchedule, close: closeSchedule }] = useDisclosure(false);
   const [form, setForm] = useState<NewProfessionalForm>(initialForm);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
-  const [newSpecialty, setNewSpecialty] = useState('');
-  const [specialties, setSpecialties] = useState<string[]>(defaultSpecialties);
+  const [specialtySearch, setSpecialtySearch] = useState('');
+  const [managerNewSpecialty, setManagerNewSpecialty] = useState('');
+  const [specialties, setSpecialties] = useState<ProfessionalSpecialty[]>([]);
   const [scheduleProfessional, setScheduleProfessional] = useState<Professional | null>(null);
   const [scheduleRows, setScheduleRows] = useState<ScheduleDraft[]>([]);
   const [scheduleWeekday, setScheduleWeekday] = useState('1');
@@ -107,17 +108,16 @@ export function ProfessionalsPage() {
 
   useEffect(() => {
     if (!api) return;
-    api.professionals.list().then(setRecords).catch(console.error);
+    Promise.all([
+      api.professionals.list(),
+      api.professionals.specialties.list(),
+    ])
+      .then(([professionals, loadedSpecialties]) => {
+        setRecords(professionals);
+        setSpecialties(loadedSpecialties);
+      })
+      .catch(console.error);
   }, [api]);
-
-  useEffect(() => {
-    if (records.length === 0) return;
-    setSpecialties((current) => {
-      const fromRecords = records.map((item) => item.specialty).filter((value) => value.trim().length > 0);
-      const merged = [...current, ...fromRecords];
-      return Array.from(new Set(merged.map((value) => value.trim()))).sort((a, b) => a.localeCompare(b));
-    });
-  }, [records]);
 
   const filteredProfessionals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -137,45 +137,82 @@ export function ProfessionalsPage() {
     });
   }, [filter, query, records]);
 
-  const registerSpecialty = (value: string) => {
+  const registerSpecialty = useCallback(async (value: string) => {
+    if (!api) return null;
+
     const specialty = value.trim();
     if (!specialty) {
-      return false;
+      return null;
     }
 
+    const existing = specialties.find(
+      (item) => normalizeSpecialty(item.name) === normalizeSpecialty(specialty),
+    );
+
+    if (existing) {
+      return existing;
+    }
+
+    const created = await api.professionals.specialties.create(specialty);
     setSpecialties((current) => {
-      const exists = current.some(
-        (item) => normalizeSpecialty(item) === normalizeSpecialty(specialty),
-      );
-
-      if (exists) {
-        return current;
-      }
-
-      return [specialty, ...current].sort((left, right) => left.localeCompare(right));
+      const withoutDuplicate = current.filter((item) => item.id !== created.id);
+      return [...withoutDuplicate, created].sort((left, right) => left.name.localeCompare(right.name));
     });
 
-    return true;
-  };
+    return created;
+  }, [api, specialties]);
 
-  const handleAddSpecialty = () => {
-    const inserted = registerSpecialty(newSpecialty);
+  const handleAddSpecialty = async () => {
+    const created = await registerSpecialty(specialtySearch);
 
-    if (!inserted) {
+    if (!created) {
       return;
     }
 
-    setForm((current) => ({ ...current, specialty: newSpecialty.trim() }));
-    setNewSpecialty('');
+    setForm((current) => ({ ...current, specialty: created.name }));
+    setSpecialtySearch(created.name);
   };
+
+  const handleAddSpecialtyFromManager = async () => {
+    const created = await registerSpecialty(managerNewSpecialty);
+
+    if (!created) {
+      return;
+    }
+
+    setManagerNewSpecialty('');
+  };
+
+  const handleRemoveSpecialty = async (specialty: ProfessionalSpecialty) => {
+    if (!api) return;
+
+    await api.professionals.specialties.remove(specialty.id);
+
+    setSpecialties((current) =>
+      current.filter((item) => normalizeSpecialty(item.name) !== normalizeSpecialty(specialty.name)),
+    );
+
+    setForm((current) => {
+      if (normalizeSpecialty(current.specialty) !== normalizeSpecialty(specialty.name)) {
+        return current;
+      }
+
+      return { ...current, specialty: '' };
+    });
+  };
+
+  const hasSpecialtyMatch = specialties.some(
+    (item) => normalizeSpecialty(item.name) === normalizeSpecialty(specialtySearch),
+  );
+  const canCreateSpecialtyFromModal = specialtySearch.trim().length > 0 && !hasSpecialtyMatch;
 
   const handleSaveProfessional = useCallback(async () => {
     const name = form.name.trim();
     const specialty = form.specialty.trim();
     const phoneDigits = form.phone.replace(/\D/g, '');
 
-    if (!name || !specialty) {
-      setFormError('Preencha nome e especialidade.');
+    if (!name) {
+      setFormError('Preencha o nome.');
       return;
     }
 
@@ -189,15 +226,22 @@ export function ProfessionalsPage() {
       return;
     }
 
-    registerSpecialty(specialty);
-
     if (!api) return;
 
+    let specialtyToSave = specialty;
+
     try {
+      if (specialty.length > 0) {
+        const ensuredSpecialty = await registerSpecialty(specialty);
+        if (ensuredSpecialty) {
+          specialtyToSave = ensuredSpecialty.name;
+        }
+      }
+
       if (editingProfessionalId) {
         const updated = await api.professionals.update(editingProfessionalId, {
           name,
-          specialty,
+          specialty: specialtyToSave,
           phone: formatPhone(form.phone),
           commissionRate: form.commissionRate,
           active: form.active,
@@ -208,7 +252,7 @@ export function ProfessionalsPage() {
       } else {
         const created = await api.professionals.create({
           name,
-          specialty,
+          specialty: specialtyToSave,
           phone: formatPhone(form.phone),
           commissionRate: form.commissionRate,
           active: form.active,
@@ -221,11 +265,11 @@ export function ProfessionalsPage() {
     }
 
     setEditingProfessionalId(null);
-    setNewSpecialty('');
+    setSpecialtySearch('');
     setForm(initialForm);
     setFormError(null);
     close();
-  }, [api, editingProfessionalId, form, registerSpecialty]);
+  }, [api, close, editingProfessionalId, form, registerSpecialty]);
 
   const handleEditProfessional = (professional: Professional) => {
     setEditingProfessionalId(professional.id);
@@ -236,7 +280,7 @@ export function ProfessionalsPage() {
       commissionRate: professional.commissionRate ?? 0,
       active: professional.active ?? true,
     });
-    setNewSpecialty('');
+    setSpecialtySearch(professional.specialty);
     setFormError(null);
     open();
   };
@@ -424,19 +468,24 @@ export function ProfessionalsPage() {
               Controle da equipe com disponibilidade e comissão para apoiar agenda e financeiro.
             </Text>
           </div>
-          <Button
-            leftSection={<Plus size={16} />}
-            onClick={() => {
-              setEditingProfessionalId(null);
-              setForm(initialForm);
-              setNewSpecialty('');
-              setFormError(null);
-              open();
-            }}
-            radius="xl"
-          >
-            Novo profissional
-          </Button>
+          <Group gap="sm">
+            <Button onClick={openSpecialties} radius="xl" variant="light">
+              Gerenciar especialidades
+            </Button>
+            <Button
+              leftSection={<Plus size={16} />}
+              onClick={() => {
+                setEditingProfessionalId(null);
+                setForm(initialForm);
+                setSpecialtySearch('');
+                setFormError(null);
+                open();
+              }}
+              radius="xl"
+            >
+              Novo profissional
+            </Button>
+          </Group>
         </Group>
       </Card>
 
@@ -669,9 +718,59 @@ export function ProfessionalsPage() {
       <Modal
         centered
         onClose={() => {
+          closeSpecialties();
+          setManagerNewSpecialty('');
+        }}
+        opened={specialtiesOpened}
+        radius="xl"
+        title="Gerenciar especialidades"
+      >
+        <Stack gap="md">
+          <Group align="flex-end" wrap="nowrap">
+            <TextInput
+              label="Nova especialidade"
+              onChange={(event) => {
+                setManagerNewSpecialty(event.currentTarget.value);
+              }}
+              placeholder="Ex: Reflexologia"
+              radius="xl"
+              style={{ flex: 1 }}
+              value={managerNewSpecialty}
+            />
+            <Button onClick={handleAddSpecialtyFromManager} radius="xl" variant="light">
+              Adicionar
+            </Button>
+          </Group>
+
+          <Stack gap="xs">
+            {specialties.length > 0 ? specialties.map((specialty) => (
+              <Group key={specialty.id} justify="space-between" wrap="nowrap">
+                <Text>{specialty.name}</Text>
+                <Button
+                  color="red"
+                  onClick={() => void handleRemoveSpecialty(specialty)}
+                  radius="xl"
+                  size="compact-sm"
+                  variant="subtle"
+                >
+                  Remover
+                </Button>
+              </Group>
+            )) : (
+              <Text c="dimmed" size="sm">
+                Nenhuma especialidade cadastrada.
+              </Text>
+            )}
+          </Stack>
+        </Stack>
+      </Modal>
+
+      <Modal
+        centered
+        onClose={() => {
           close();
           setEditingProfessionalId(null);
-          setNewSpecialty('');
+          setSpecialtySearch('');
           setFormError(null);
         }}
         opened={opened}
@@ -690,37 +789,37 @@ export function ProfessionalsPage() {
             value={form.name}
           />
 
+          <Group justify="space-between" align="flex-end" wrap="nowrap">
+            <Text fw={500} size="sm">Especialidade (opcional)</Text>
+            {canCreateSpecialtyFromModal ? (
+              <Button onClick={() => void handleAddSpecialty()} radius="xl" size="compact-sm" variant="light">
+                Criar "{specialtySearch.trim()}"
+              </Button>
+            ) : null}
+          </Group>
+
           <Select
             data={specialties.map((specialty) => ({
-              value: specialty,
-              label: specialty,
+              value: specialty.name,
+              label: specialty.name,
             }))}
-            label="Especialidade"
             onChange={(value) => {
-              setForm((current) => ({ ...current, specialty: value ?? '' }));
+              const selected = value ?? '';
+              setForm((current) => ({ ...current, specialty: selected }));
+              setSpecialtySearch(selected);
             }}
-            placeholder="Selecione uma especialidade"
+            onSearchChange={setSpecialtySearch}
+            searchValue={specialtySearch}
+            nothingFoundMessage={specialtySearch.trim().length > 0 ? 'Nenhuma especialidade encontrada' : 'Sem opções'}
+            placeholder="Selecione ou digite uma especialidade"
             radius="xl"
             searchable
             value={form.specialty}
           />
 
-          <Group align="flex-end" wrap="nowrap">
-            <TextInput
-              label="Criar nova especialidade"
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setNewSpecialty(value);
-              }}
-              placeholder="Ex: Reflexologia"
-              radius="xl"
-              style={{ flex: 1 }}
-              value={newSpecialty}
-            />
-            <Button onClick={handleAddSpecialty} radius="xl" variant="light">
-              Adicionar
-            </Button>
-          </Group>
+          <Text c="dimmed" size="xs">
+            Você pode deixar em branco ou criar uma nova especialidade ao digitar.
+          </Text>
 
           <TextInput
             label="Telefone"
@@ -764,7 +863,7 @@ export function ProfessionalsPage() {
               onClick={() => {
                 close();
                 setEditingProfessionalId(null);
-                setNewSpecialty('');
+                setSpecialtySearch('');
                 setFormError(null);
               }}
               radius="xl"

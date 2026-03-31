@@ -16,6 +16,11 @@ export interface Professional {
   active?: boolean;
 }
 
+export interface ProfessionalSpecialty {
+  id: string;
+  name: string;
+}
+
 export interface ProfessionalSchedule {
   id: string;
   professionalId: string;
